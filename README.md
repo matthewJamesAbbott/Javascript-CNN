@@ -52,8 +52,3 @@ That's it! No build step or server required.
 ## Vercel Link
 https://vercel.com/msquigs-projects/javascript-cnn
 
-
----
-
-**Want to learn more?**  
-Check out [Javascript-MLP](https://github.com/matthewJamesAbbott/Javascript-MLP) for the same pattern applied to classic MLPs, or dig into the code to see how CNNs can be implemented from scratch and visualized in pure JavaScript.
