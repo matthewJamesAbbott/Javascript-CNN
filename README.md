@@ -51,7 +51,7 @@ That's it! No build step or server required.
 
 ## Vercel Link
 https://vercel.com/msquigs-projects/javascript-cnn
-*Coming soon!*
+
 
 ---
 
