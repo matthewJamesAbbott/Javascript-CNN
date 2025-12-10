@@ -1,8 +1,18 @@
+<!--
+  This HTML file contains everything needed to interactively train, test, and explore a Convolutional Neural Network (CNN)
+  in the browser, including:
+  - Controls for designing the network,
+  - Ways to input image data,
+  - A simple CNN implemented in JavaScript (inside <script> tags)
+  - Visual feedback for predictions and training
+-->
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <title>Convolutional Neural Network Trainer</title>
+    <!-- Styling for the form and visuals, to make the page readable and organized -->
     <style>
         body { font-family: Arial, sans-serif; margin: 2rem; }
         .section { margin-bottom: 2rem; border-bottom: 1px solid #ccc; padding-bottom: 1rem; }
@@ -19,6 +29,7 @@
 <body>
 <h1>Convolutional Neural Network Trainer</h1>
 
+<!-- Section 1: CNN Configuration, lets user choose network layout -->
 <div class="section">
     <h2>CNN Configuration</h2>
     <label>Image Width: <input type="number" id="imgWidth" value="28" min="1"></label>
@@ -35,6 +46,7 @@
     <span id="networkStatus"></span>
 </div>
 
+<!-- Section 2: Enter image data as CSV or random -->
 <div class="section">
     <h2>Image Data</h2>
     <label>Randomize Sample Image</label>
@@ -45,11 +57,13 @@
     <div id="imageStatus"></div>
 </div>
 
+<!-- Section 3: Specify the output target (what label is this image?) -->
 <div class="section">
     <h2>Target Class</h2>
     <label>Target Vector (comma separated, e.g. 1,0,0... for class 0): <input type="text" id="targetVec" value="1,0,0,0,0,0,0,0,0,0"></label>
 </div>
 
+<!-- Section 4: Train/Test Controls -->
 <div class="section">
     <h2>Train & Predict</h2>
     <label>Train Epochs: <input type="number" id="trainEpochs" value="10" min="1" max="100"></label>
@@ -60,8 +74,15 @@
     <div id="predictionResult"></div>
 </div>
 
+<!-- 
+  The main code section: JavaScript CNN logic!
+  Everything below here is code that powers the neural network, data processing, and UI updates.
+-->
 <script>
 class CNN {
+    /**
+     * Build a CNN with user-specified layer parameters.
+     */
     constructor(inputWidth, inputHeight, channels, convFilters, kernelSizes, poolSizes, fcSizes, outputSize, learningRate) {
         this.inputWidth = inputWidth;
         this.inputHeight = inputHeight;
@@ -75,8 +96,10 @@ class CNN {
         this.initLayers();
     }
 
+    /**
+     * Initializes convolutional, pooling, fully connected, and output layers.
+     */
     initLayers() {
-        // Initialize convolutional and pooling layers
         this.convLayers = [];
         this.poolLayers = [];
         let currWidth = this.inputWidth;
@@ -86,6 +109,7 @@ class CNN {
             let kernel = this.kernelSizes[i];
             let filters = this.convFilters[i];
             this.convLayers.push(this.initConvLayer(filters, currChannels, kernel));
+            // Calculate output size after this conv layer
             currWidth = Math.floor((currWidth - kernel + 2 * 1) / 1 + 1); // padding=1, stride=1
             currHeight = Math.floor((currHeight - kernel + 2 * 1) / 1 + 1);
             currChannels = filters;
@@ -98,18 +122,21 @@ class CNN {
         }
         this.flattenedSize = currWidth * currHeight * currChannels;
 
-        // Fully connected layers
+        // Setup fully connected layers
         this.fcLayers = [];
         let numInputs = this.flattenedSize;
         for (let sz of this.fcSizes) {
             this.fcLayers.push(this.initFCLayer(sz, numInputs));
             numInputs = sz;
         }
-        // Output layer
+        // Output layer (final predictions)
         this.outputLayer = this.initFCLayer(this.outputSize, numInputs);
     }
 
-    // Layers
+    /**
+     * Initializes a single convolutional layer. 
+     * Each filter is a set of random weights and a bias.
+     */
     initConvLayer(numFilters, inChannels, kernel) {
         let filters = [];
         for (let i = 0; i < numFilters; i++) {
@@ -119,6 +146,7 @@ class CNN {
                 for (let h = 0; h < kernel; h++) {
                     let row = [];
                     for (let wIdx = 0; wIdx < kernel; wIdx++) {
+                        // He initialization: random weights for learning
                         row.push((Math.random() - 0.5) * Math.sqrt(2 / (inChannels * kernel * kernel)));
                     }
                     k.push(row);
@@ -130,10 +158,17 @@ class CNN {
         return { filters, stride: 1, padding: 1, output: null };
     }
 
+    /** 
+     * Initializes a pooling layer (downsamples features to reduce size)
+     */
     initPoolLayer(poolSize) {
         return { poolSize, output: null };
     }
 
+    /**
+     * Initializes a fully-connected layer.
+     * Each neuron contains weights for its inputs and a bias.
+     */
     initFCLayer(numNeurons, numInputs) {
         let neurons = [];
         for (let i = 0; i < numNeurons; i++) {
@@ -145,11 +180,16 @@ class CNN {
         return { neurons };
     }
 
+    /** Rectified Linear Unit activation (ReLU) function */
     relu(x) { return Math.max(0, x); }
+    /** Derivative of ReLU (used in training/backprop) */
     reluD(x) { return x > 0 ? 1 : 0; }
+    /** Sigmoid activation function (squashes values to range [0,1]) */
     sigmoid(x) { return 1 / (1 + Math.exp(-x)); }
 
-    // Forward pass
+    /**
+     * Forward pass for convolutional layer: applies filters to input array
+     */
     convForward(layer, input, inWidth, inHeight) {
         let outputMaps = [];
         let inChannels = input.length;
@@ -182,6 +222,9 @@ class CNN {
         return outputMaps;
     }
 
+    /**
+     * Forward pass for pooling layer: downsamples feature maps, keeps largest value in each region
+     */
     poolForward(layer, input, inWidth, inHeight) {
         let outputMaps = [];
         let outWidth = Math.floor(inWidth / layer.poolSize);
@@ -208,6 +251,7 @@ class CNN {
         return outputMaps;
     }
 
+    /** Flattens multi-dimensional feature maps into a 1D array */
     flattenFeatures(input) {
         let arr = [];
         for (let c = 0; c < input.length; c++)
@@ -218,6 +262,9 @@ class CNN {
         return arr;
     }
 
+    /**
+     * Forward pass for fully connected (FC) layer: calculates neuron outputs for each layer
+     */
     fcForward(layer, input) {
         let outputs = [];
         for (let n of layer.neurons) {
@@ -230,6 +277,9 @@ class CNN {
         return outputs;
     }
 
+    /**
+     * Predicts class probabilities for an image object using the full forward pass through the model
+     */
     predictImage(imageObj) {
         let { data, width, height, channels } = imageObj;
         // Forward through conv/pool layers
@@ -262,13 +312,17 @@ class CNN {
         return result;
     }
 
+    /**
+     * Trains the network using a single image and its target vector.
+     * Only output layer weights are updated for brevity
+     */
     train(imageObj, targetVec) {
-        // Only output backprop is implemented for brevity (like Pascal code)
         let pred = this.predictImage(imageObj);
         let out = this.outputLayer.neurons;
         for (let i = 0; i < out.length; i++)
+            // Calculate error using sigmoid derivative
             out[i].error = out[i].output * (1 - out[i].output) * (targetVec[i] - out[i].output);
-        // Update output weights
+        // Update output weights using backprop
         let flat = this.flattenedFeatures;
         for (let i = 0; i < out.length; i++) {
             for (let j = 0; j < out[i].weights.length; j++)
@@ -278,9 +332,9 @@ class CNN {
     }
 }
 
-// ---- HELPERS ----
+/** ========= Utility & UI Functions ========== **/
 
-// Parse image CSV into 3D array
+// Converts CSV text into structured image data
 function parseImageCSV(csv, ch, h, w) {
     let arr = [];
     let lines = csv.trim().split("\n");
@@ -298,7 +352,7 @@ function parseImageCSV(csv, ch, h, w) {
     return arr;
 }
 
-// Generate random image
+// Creates a random image for input and testing
 function randomImage(ch, h, w) {
     let d = [];
     for (let c = 0; c < ch; c++) {
@@ -314,7 +368,7 @@ function randomImage(ch, h, w) {
     return d;
 }
 
-// ---- UI STATE ----
+/** Stores global CNN instance and sample image definitions for UI */
 let cnn = null;
 let sampleImage = {
     data: randomImage(
@@ -327,6 +381,7 @@ let sampleImage = {
     channels: +document.getElementById("imgChannels").value
 };
 
+/** Creates a new CNN instance using form input values */
 function createNetwork() {
     let w = +document.getElementById("imgWidth").value;
     let h = +document.getElementById("imgHeight").value;
@@ -341,12 +396,13 @@ function createNetwork() {
     document.getElementById("networkStatus").textContent = "CNN created!";
 }
 
+/** Generates random image data and displays as CSV */
 function randomizeImage() {
     let w = +document.getElementById("imgWidth").value;
     let h = +document.getElementById("imgHeight").value;
     let ch = +document.getElementById("imgChannels").value;
     sampleImage = { data: randomImage(ch, h, w), width: w, height: h, channels: ch };
-    // Set textarea
+    // Set textarea value to generated CSV for user viewing/editing
     let csv = '';
     for (let c = 0; c < ch; c++) {
         for (let i = 0; i < h; i++) {
@@ -357,6 +413,7 @@ function randomizeImage() {
     document.getElementById("imageStatus").textContent = "Random image generated!";
 }
 
+/** Loads image data from user-edited CSV and sets up the image object */
 function loadImage() {
     let w = +document.getElementById("imgWidth").value;
     let h = +document.getElementById("imgHeight").value;
@@ -371,6 +428,7 @@ function loadImage() {
     }
 }
 
+/** Trains the network for the specified number of epochs using the current image and target vector */
 function trainNetwork() {
     if (!cnn) return;
     let epochs = +document.getElementById("trainEpochs").value;
@@ -380,6 +438,7 @@ function trainNetwork() {
     document.getElementById("trainStatus").textContent = "Training complete ("+epochs+" epochs)";
 }
 
+/** Makes a prediction from the current image and displays the results */
 function predictImage() {
     if (!cnn) return;
     let pred = cnn.predictImage(sampleImage);
@@ -387,7 +446,7 @@ function predictImage() {
         "<div class='metric'>Predicted: [" + pred.map(x=>x.toFixed(4)).join(", ") + "]</div>";
 }
 
-// ---- On page load, generate initial random image
+// On page load, create a random image so user gets a prompt
 randomizeImage();
 
 </script>
