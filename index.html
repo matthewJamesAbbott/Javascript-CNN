@@ -1,89 +1,174 @@
 <!--
-  This HTML file contains everything needed to interactively train, test, and explore a Convolutional Neural Network (CNN)
-  in the browser, including:
-  - Controls for designing the network,
-  - Ways to input image data,
-  - A simple CNN implemented in JavaScript (inside <script> tags)
-  - Visual feedback for predictions and training
+  Enhanced CNN Trainer with:
+  - Full backpropagation for conv/pool layers
+  - Softmax/cross-entropy for multi-class
+  - Dataset support with train/test split
+  - Batching, shuffling, Adam optimizer
+  - Image upload and visualization
+  - Dropout and data augmentation
+  - Model save/load with localStorage
 -->
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <title>Convolutional Neural Network Trainer</title>
-    <!-- Styling for the form and visuals, to make the page readable and organized -->
     <style>
-        body { font-family: Arial, sans-serif; margin: 2rem; }
-        .section { margin-bottom: 2rem; border-bottom: 1px solid #ccc; padding-bottom: 1rem; }
+        body { font-family: Arial, sans-serif; margin: 2rem; background: #fafafa; }
+        .section { margin-bottom: 2rem; border-bottom: 1px solid #ccc; padding-bottom: 1rem; background: #fff; padding: 1rem; border-radius: 8px; }
         label { display: block; margin-top: 0.5rem; }
         input, select, textarea, button { margin: 0.5rem 0; }
+        button { padding: 8px 16px; cursor: pointer; background: #4285f4; color: white; border: none; border-radius: 4px; }
+        button:hover { background: #3367d6; }
+        button:disabled { background: #ccc; cursor: not-allowed; }
         .metric { font-weight: bold; }
         .results { background-color: #f5f5f5; padding: 1rem; margin: 1rem 0; border-radius: 5px; }
         table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
         th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
         th { background-color: #f2f2f2; }
         .epoch-info { font-style: italic; color: #666; margin-top: 0.5rem; }
+        .canvas-container { display: flex; gap: 1rem; flex-wrap: wrap; align-items: flex-start; }
+        canvas { border: 1px solid #ccc; background: #fff; }
+        .progress-bar { width: 100%; height: 20px; background: #e0e0e0; border-radius: 10px; overflow: hidden; margin: 0.5rem 0; }
+        .progress-fill { height: 100%; background: #4285f4; transition: width 0.3s; }
+        .metrics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1rem; margin: 1rem 0; }
+        .metric-card { background: #f0f0f0; padding: 1rem; border-radius: 8px; text-align: center; }
+        .metric-value { font-size: 1.5rem; font-weight: bold; color: #333; }
+        .metric-label { font-size: 0.9rem; color: #666; }
+        .inline-group { display: flex; gap: 1rem; flex-wrap: wrap; align-items: center; }
+        .dataset-info { background: #e8f5e9; padding: 0.5rem 1rem; border-radius: 4px; margin: 0.5rem 0; }
+        .confusion-matrix { font-family: monospace; }
+        #trainingLog { max-height: 200px; overflow-y: auto; background: #333; color: #0f0; padding: 1rem; font-family: monospace; font-size: 12px; border-radius: 4px; }
+        .visualization-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 0.5rem; margin: 1rem 0; }
+        .filter-viz { text-align: center; }
+        .filter-viz canvas { display: block; margin: 0 auto; }
+        .filter-viz span { font-size: 10px; color: #666; }
     </style>
 </head>
 <body>
 <h1>Convolutional Neural Network Trainer</h1>
 
-<!-- Section 1: CNN Configuration, lets user choose network layout -->
+<!-- Section 1: CNN Configuration -->
 <div class="section">
     <h2>CNN Configuration</h2>
-    <label>Image Width: <input type="number" id="imgWidth" value="28" min="1"></label>
-    <label>Image Height: <input type="number" id="imgHeight" value="28" min="1"></label>
-    <label>Channels: <input type="number" id="imgChannels" value="1" min="1" max="3"></label>
-    <br>
-    <label>Convolution Filters (comma separated): <input type="text" id="convFilters" value="16,32"></label>
-    <label>Convolution Kernel Sizes (comma separated): <input type="text" id="kernelSizes" value="3,3"></label>
-    <label>Pooling Sizes (comma separated): <input type="text" id="poolSizes" value="2,2"></label>
-    <label>Fully Connected Sizes (comma separated): <input type="text" id="fcSizes" value="128"></label>
+    <div class="inline-group">
+        <label>Image Width: <input type="number" id="imgWidth" value="28" min="1"></label>
+        <label>Image Height: <input type="number" id="imgHeight" value="28" min="1"></label>
+        <label>Channels: <input type="number" id="imgChannels" value="1" min="1" max="3"></label>
+    </div>
+    <label>Convolution Filters (comma separated): <input type="text" id="convFilters" value="16,32" style="width:200px"></label>
+    <label>Convolution Kernel Sizes: <input type="text" id="kernelSizes" value="3,3" style="width:200px"></label>
+    <label>Pooling Sizes: <input type="text" id="poolSizes" value="2,2" style="width:200px"></label>
+    <label>Fully Connected Sizes: <input type="text" id="fcSizes" value="128" style="width:200px"></label>
     <label>Output Size / Classes: <input type="number" id="outputSize" value="10" min="1"></label>
-    <label>Learning Rate: <input type="number" id="learningRate" value="0.01" step="0.001" min="0.001" max="1"></label>
-    <button onclick="createNetwork()">Create Network</button>
+    <div class="inline-group">
+        <label>Learning Rate: <input type="number" id="learningRate" value="0.001" step="0.0001" min="0.0001" max="1"></label>
+        <label>Dropout Rate: <input type="number" id="dropoutRate" value="0.25" step="0.05" min="0" max="0.9"></label>
+    </div>
+    <div class="inline-group">
+        <label>Optimizer: 
+            <select id="optimizer">
+                <option value="sgd">SGD</option>
+                <option value="adam" selected>Adam</option>
+            </select>
+        </label>
+        <label>Batch Size: <input type="number" id="batchSize" value="32" min="1" max="512"></label>
+    </div>
+    <div class="inline-group">
+        <button onclick="createNetwork()">Create Network</button>
+        <button onclick="saveModel()">Save Model</button>
+        <button onclick="loadModel()">Load Model</button>
+        <button onclick="exportModel()">Export JSON</button>
+        <input type="file" id="importFile" accept=".json" onchange="importModel(event)" style="display:none">
+        <button onclick="document.getElementById('importFile').click()">Import JSON</button>
+    </div>
     <span id="networkStatus"></span>
 </div>
 
-<!-- Section 2: Enter image data as CSV or random -->
+<!-- Section 2: Dataset Management -->
 <div class="section">
-    <h2>Image Data</h2>
-    <label>Randomize Sample Image</label>
-    <button onclick="randomizeImage()">Randomize Image</button>
+    <h2>Dataset Management</h2>
+    <div class="inline-group">
+        <button onclick="generateSyntheticDataset()">Generate Synthetic Dataset</button>
+        <label>Samples per class: <input type="number" id="samplesPerClass" value="100" min="10" max="1000"></label>
+    </div>
+    <div class="inline-group">
+        <label>Upload Images: <input type="file" id="imageUpload" accept="image/*" multiple onchange="handleImageUpload(event)"></label>
+        <label>Class Label: <input type="number" id="uploadLabel" value="0" min="0"></label>
+        <button onclick="addUploadedImages()">Add to Dataset</button>
+    </div>
+    <div class="inline-group">
+        <label>Train/Test Split: <input type="number" id="trainSplit" value="80" min="50" max="95">%</label>
+        <button onclick="splitDataset()">Split Dataset</button>
+        <label><input type="checkbox" id="enableAugmentation"> Enable Data Augmentation</label>
+    </div>
+    <div id="datasetInfo" class="dataset-info" style="display:none"></div>
+    <div class="canvas-container">
+        <div>
+            <h4>Dataset Preview</h4>
+            <canvas id="datasetPreview" width="280" height="280"></canvas>
+        </div>
+        <div>
+            <h4>Uploaded Image Preview</h4>
+            <canvas id="uploadPreview" width="140" height="140"></canvas>
+        </div>
+    </div>
+</div>
+
+<!-- Section 3: Single Image Input -->
+<div class="section">
+    <h2>Single Image Input</h2>
+    <div class="inline-group">
+        <button onclick="randomizeImage()">Randomize Image</button>
+        <label>Upload Single Image: <input type="file" id="singleImageUpload" accept="image/*" onchange="handleSingleImageUpload(event)"></label>
+    </div>
     <label>Or edit CSV:</label>
-    <textarea id="imageCSV" rows="8" cols="60" placeholder="Paste CSV (channels,height,width)"></textarea>
+    <textarea id="imageCSV" rows="6" cols="60" placeholder="Paste CSV (channels,height,width)"></textarea>
     <button onclick="loadImage()">Load CSV as Image</button>
     <div id="imageStatus"></div>
+    <div class="canvas-container">
+        <canvas id="inputCanvas" width="140" height="140"></canvas>
+    </div>
 </div>
 
-<!-- Section 3: Specify the output target (what label is this image?) -->
+<!-- Section 4: Training -->
 <div class="section">
-    <h2>Target Class</h2>
-    <label>Target Vector (comma separated, e.g. 1,0,0... for class 0): <input type="text" id="targetVec" value="1,0,0,0,0,0,0,0,0,0"></label>
+    <h2>Training</h2>
+    <div class="inline-group">
+        <label>Epochs: <input type="number" id="trainEpochs" value="10" min="1" max="1000"></label>
+        <button onclick="trainOnDataset()" id="trainBtn">Train on Dataset</button>
+        <button onclick="stopTraining()" id="stopBtn" disabled>Stop</button>
+    </div>
+    <div class="progress-bar">
+        <div class="progress-fill" id="trainProgress" style="width: 0%"></div>
+    </div>
+    <div id="trainStatus"></div>
+    <div id="trainingLog"></div>
 </div>
 
-<!-- Section 4: Train/Test Controls -->
+<!-- Section 5: Evaluation & Metrics -->
 <div class="section">
-    <h2>Train & Predict</h2>
-    <label>Train Epochs: <input type="number" id="trainEpochs" value="10" min="1" max="100"></label>
-    <button onclick="trainNetwork()">Train Network</button>
-    <span id="trainStatus"></span>
-    <br>
-    <button onclick="predictImage()">Predict</button>
+    <h2>Evaluation & Metrics</h2>
+    <button onclick="evaluateModel()">Evaluate on Test Set</button>
+    <button onclick="predictSingleImage()">Predict Single Image</button>
+    <div class="metrics-grid" id="metricsGrid"></div>
     <div id="predictionResult"></div>
+    <div id="confusionMatrix"></div>
 </div>
 
-<!-- 
-  The main code section: JavaScript CNN logic!
-  Everything below here is code that powers the neural network, data processing, and UI updates.
--->
+<!-- Section 6: Visualization -->
+<div class="section">
+    <h2>Network Visualization</h2>
+    <button onclick="visualizeFilters()">Show Conv Filters</button>
+    <button onclick="visualizeActivations()">Show Activations</button>
+    <div id="filterViz" class="visualization-grid"></div>
+    <div id="activationViz" class="canvas-container"></div>
+</div>
+
 <script>
+// ============== CNN Class with Full Backprop ==============
 class CNN {
-    /**
-     * Build a CNN with user-specified layer parameters.
-     */
-    constructor(inputWidth, inputHeight, channels, convFilters, kernelSizes, poolSizes, fcSizes, outputSize, learningRate) {
+    constructor(inputWidth, inputHeight, channels, convFilters, kernelSizes, poolSizes, fcSizes, outputSize, learningRate, dropoutRate = 0.25, optimizer = 'adam') {
         this.inputWidth = inputWidth;
         this.inputHeight = inputHeight;
         this.channels = channels;
@@ -93,26 +178,32 @@ class CNN {
         this.fcSizes = fcSizes;
         this.outputSize = outputSize;
         this.learningRate = learningRate;
+        this.dropoutRate = dropoutRate;
+        this.optimizer = optimizer;
+        this.training = false;
+        this.beta1 = 0.9;
+        this.beta2 = 0.999;
+        this.epsilon = 1e-8;
+        this.t = 0;
         this.initLayers();
     }
 
-    /**
-     * Initializes convolutional, pooling, fully connected, and output layers.
-     */
     initLayers() {
         this.convLayers = [];
         this.poolLayers = [];
         let currWidth = this.inputWidth;
         let currHeight = this.inputHeight;
         let currChannels = this.channels;
+
         for (let i = 0; i < this.convFilters.length; i++) {
             let kernel = this.kernelSizes[i];
             let filters = this.convFilters[i];
-            this.convLayers.push(this.initConvLayer(filters, currChannels, kernel));
-            // Calculate output size after this conv layer
-            currWidth = Math.floor((currWidth - kernel + 2 * 1) / 1 + 1); // padding=1, stride=1
-            currHeight = Math.floor((currHeight - kernel + 2 * 1) / 1 + 1);
+            let padding = Math.floor(kernel / 2);
+            this.convLayers.push(this.initConvLayer(filters, currChannels, kernel, padding));
+            currWidth = Math.floor((currWidth - kernel + 2 * padding) / 1 + 1);
+            currHeight = Math.floor((currHeight - kernel + 2 * padding) / 1 + 1);
             currChannels = filters;
+            
             if (i < this.poolSizes.length) {
                 let pool = this.poolSizes[i];
                 this.poolLayers.push(this.initPoolLayer(pool));
@@ -120,86 +211,128 @@ class CNN {
                 currHeight = Math.floor(currHeight / pool);
             }
         }
+        
         this.flattenedSize = currWidth * currHeight * currChannels;
-
-        // Setup fully connected layers
         this.fcLayers = [];
         let numInputs = this.flattenedSize;
+        
         for (let sz of this.fcSizes) {
             this.fcLayers.push(this.initFCLayer(sz, numInputs));
             numInputs = sz;
         }
-        // Output layer (final predictions)
         this.outputLayer = this.initFCLayer(this.outputSize, numInputs);
     }
 
-    /**
-     * Initializes a single convolutional layer. 
-     * Each filter is a set of random weights and a bias.
-     */
-    initConvLayer(numFilters, inChannels, kernel) {
+    initConvLayer(numFilters, inChannels, kernel, padding) {
         let filters = [];
+        let scale = Math.sqrt(2.0 / (inChannels * kernel * kernel));
         for (let i = 0; i < numFilters; i++) {
-            let w = [];
+            let w = [], m = [], v = [];
             for (let c = 0; c < inChannels; c++) {
-                let k = [];
+                let k = [], km = [], kv = [];
                 for (let h = 0; h < kernel; h++) {
-                    let row = [];
+                    let row = [], rm = [], rv = [];
                     for (let wIdx = 0; wIdx < kernel; wIdx++) {
-                        // He initialization: random weights for learning
-                        row.push((Math.random() - 0.5) * Math.sqrt(2 / (inChannels * kernel * kernel)));
+                        row.push((Math.random() - 0.5) * scale);
+                        rm.push(0); rv.push(0);
                     }
-                    k.push(row);
+                    k.push(row); km.push(rm); kv.push(rv);
                 }
-                w.push(k);
+                w.push(k); m.push(km); v.push(kv);
             }
-            filters.push({ weights: w, bias: 0 });
+            filters.push({ weights: w, bias: 0, biasM: 0, biasV: 0, m, v });
         }
-        return { filters, stride: 1, padding: 1, output: null };
+        return { filters, stride: 1, padding, kernel, inChannels, output: null, input: null, preAct: null };
     }
 
-    /** 
-     * Initializes a pooling layer (downsamples features to reduce size)
-     */
     initPoolLayer(poolSize) {
-        return { poolSize, output: null };
+        return { poolSize, output: null, input: null, maxIndices: null };
     }
 
-    /**
-     * Initializes a fully-connected layer.
-     * Each neuron contains weights for its inputs and a bias.
-     */
     initFCLayer(numNeurons, numInputs) {
         let neurons = [];
+        let scale = Math.sqrt(2.0 / numInputs);
         for (let i = 0; i < numNeurons; i++) {
-            let weights = [];
-            for (let j = 0; j < numInputs; j++)
-                weights.push((Math.random() - 0.5) * 0.1);
-            neurons.push({ weights, bias: 0, output: 0, error: 0 });
+            let weights = [], m = [], v = [];
+            for (let j = 0; j < numInputs; j++) {
+                weights.push((Math.random() - 0.5) * scale);
+                m.push(0); v.push(0);
+            }
+            neurons.push({ weights, bias: 0, biasM: 0, biasV: 0, m, v, output: 0, preAct: 0, error: 0, dropoutMask: 1 });
         }
-        return { neurons };
+        return { neurons, input: null };
     }
 
-    /** Rectified Linear Unit activation (ReLU) function */
     relu(x) { return Math.max(0, x); }
-    /** Derivative of ReLU (used in training/backprop) */
     reluD(x) { return x > 0 ? 1 : 0; }
-    /** Sigmoid activation function (squashes values to range [0,1]) */
-    sigmoid(x) { return 1 / (1 + Math.exp(-x)); }
 
-    /**
-     * Forward pass for convolutional layer: applies filters to input array
-     */
-    convForward(layer, input, inWidth, inHeight) {
-        let outputMaps = [];
-        let inChannels = input.length;
-        let kernel = layer.filters[0].weights[0].length;
-        let outWidth = Math.floor((inWidth - kernel + 2 * layer.padding) / layer.stride + 1);
-        let outHeight = Math.floor((inHeight - kernel + 2 * layer.padding) / layer.stride + 1);
-        for (let f = 0; f < layer.filters.length; f++) {
-            let map = [];
-            for (let h = 0; h < outHeight; h++) {
+    softmax(arr) {
+        let max = Math.max(...arr);
+        let exps = arr.map(x => Math.exp(x - max));
+        let sum = exps.reduce((a, b) => a + b, 0);
+        return exps.map(x => x / sum);
+    }
+
+    crossEntropyLoss(predicted, target) {
+        let loss = 0;
+        for (let i = 0; i < target.length; i++) {
+            loss -= target[i] * Math.log(Math.max(predicted[i], 1e-15));
+        }
+        return loss;
+    }
+
+    applyDropout(layer) {
+        if (!this.training || this.dropoutRate <= 0) {
+            for (let n of layer.neurons) n.dropoutMask = 1;
+            return;
+        }
+        for (let n of layer.neurons) {
+            n.dropoutMask = Math.random() > this.dropoutRate ? 1 / (1 - this.dropoutRate) : 0;
+        }
+    }
+
+    pad3D(input, padding) {
+        if (padding === 0) return input;
+        let channels = input.length;
+        let h = input[0].length;
+        let w = input[0][0].length;
+        let padded = [];
+        for (let c = 0; c < channels; c++) {
+            let chan = [];
+            for (let i = 0; i < h + 2 * padding; i++) {
                 let row = [];
+                for (let j = 0; j < w + 2 * padding; j++) {
+                    let srcI = i - padding, srcJ = j - padding;
+                    if (srcI >= 0 && srcI < h && srcJ >= 0 && srcJ < w) {
+                        row.push(input[c][srcI][srcJ]);
+                    } else {
+                        row.push(0);
+                    }
+                }
+                chan.push(row);
+            }
+            padded.push(chan);
+        }
+        return padded;
+    }
+
+    convForward(layer, input, inWidth, inHeight) {
+        let paddedInput = this.pad3D(input, layer.padding);
+        layer.input = input;
+        layer.paddedInput = paddedInput;
+        
+        let kernel = layer.kernel;
+        let outWidth = Math.floor((inWidth + 2 * layer.padding - kernel) / layer.stride + 1);
+        let outHeight = Math.floor((inHeight + 2 * layer.padding - kernel) / layer.stride + 1);
+        let inChannels = input.length;
+        
+        let outputMaps = [];
+        let preActMaps = [];
+        
+        for (let f = 0; f < layer.filters.length; f++) {
+            let map = [], preMap = [];
+            for (let h = 0; h < outHeight; h++) {
+                let row = [], preRow = [];
                 for (let w = 0; w < outWidth; w++) {
                     let sum = layer.filters[f].bias;
                     for (let c = 0; c < inChannels; c++) {
@@ -207,51 +340,62 @@ class CNN {
                             for (let kw = 0; kw < kernel; kw++) {
                                 let inH = h * layer.stride + kh;
                                 let inW = w * layer.stride + kw;
-                                if (inH < inHeight && inW < inWidth)
-                                    sum += input[c][inH][inW] * layer.filters[f].weights[c][kh][kw];
+                                sum += paddedInput[c][inH][inW] * layer.filters[f].weights[c][kh][kw];
                             }
                         }
                     }
+                    preRow.push(sum);
                     row.push(this.relu(sum));
                 }
+                preMap.push(preRow);
                 map.push(row);
             }
+            preActMaps.push(preMap);
             outputMaps.push(map);
         }
+        
+        layer.preAct = preActMaps;
         layer.output = outputMaps;
         return outputMaps;
     }
 
-    /**
-     * Forward pass for pooling layer: downsamples feature maps, keeps largest value in each region
-     */
     poolForward(layer, input, inWidth, inHeight) {
+        layer.input = input;
         let outputMaps = [];
+        let maxIndices = [];
         let outWidth = Math.floor(inWidth / layer.poolSize);
         let outHeight = Math.floor(inHeight / layer.poolSize);
+        
         for (let c = 0; c < input.length; c++) {
-            let map = [];
+            let map = [], indices = [];
             for (let h = 0; h < outHeight; h++) {
-                let row = [];
+                let row = [], idxRow = [];
                 for (let w = 0; w < outWidth; w++) {
-                    let maxVal = -Infinity;
+                    let maxVal = -Infinity, maxIdx = {ph: 0, pw: 0};
                     for (let ph = 0; ph < layer.poolSize; ph++) {
                         for (let pw = 0; pw < layer.poolSize; pw++) {
-                            let v = input[c][h * layer.poolSize + ph][w * layer.poolSize + pw];
-                            if (v > maxVal) maxVal = v;
+                            let val = input[c][h * layer.poolSize + ph][w * layer.poolSize + pw];
+                            if (val > maxVal) {
+                                maxVal = val;
+                                maxIdx = {ph, pw};
+                            }
                         }
                     }
                     row.push(maxVal);
+                    idxRow.push(maxIdx);
                 }
                 map.push(row);
+                indices.push(idxRow);
             }
             outputMaps.push(map);
+            maxIndices.push(indices);
         }
+        
         layer.output = outputMaps;
+        layer.maxIndices = maxIndices;
         return outputMaps;
     }
 
-    /** Flattens multi-dimensional feature maps into a 1D array */
     flattenFeatures(input) {
         let arr = [];
         for (let c = 0; c < input.length; c++)
@@ -259,32 +403,49 @@ class CNN {
                 for (let w = 0; w < input[c][h].length; w++)
                     arr.push(input[c][h][w]);
         this.flattenedFeatures = arr;
+        this.lastConvShape = { channels: input.length, height: input[0].length, width: input[0][0].length };
         return arr;
     }
 
-    /**
-     * Forward pass for fully connected (FC) layer: calculates neuron outputs for each layer
-     */
+    unflattenGradient(grad) {
+        let { channels, height, width } = this.lastConvShape;
+        let result = [];
+        let idx = 0;
+        for (let c = 0; c < channels; c++) {
+            let chan = [];
+            for (let h = 0; h < height; h++) {
+                let row = [];
+                for (let w = 0; w < width; w++) {
+                    row.push(grad[idx++]);
+                }
+                chan.push(row);
+            }
+            result.push(chan);
+        }
+        return result;
+    }
+
     fcForward(layer, input) {
+        layer.input = input.slice();
+        this.applyDropout(layer);
         let outputs = [];
         for (let n of layer.neurons) {
             let sum = n.bias;
             for (let j = 0; j < input.length; j++)
                 sum += input[j] * n.weights[j];
-            n.output = this.relu(sum);
+            n.preAct = sum;
+            n.output = this.relu(sum) * n.dropoutMask;
             outputs.push(n.output);
         }
         return outputs;
     }
 
-    /**
-     * Predicts class probabilities for an image object using the full forward pass through the model
-     */
-    predictImage(imageObj) {
-        let { data, width, height, channels } = imageObj;
-        // Forward through conv/pool layers
+    forward(imageObj, training = false) {
+        this.training = training;
+        let { data, width, height } = imageObj;
         let currentOutput = data;
         let currWidth = width, currHeight = height;
+        
         for (let i = 0; i < this.convLayers.length; i++) {
             currentOutput = this.convForward(this.convLayers[i], currentOutput, currWidth, currHeight);
             currWidth = currentOutput[0][0].length;
@@ -295,46 +456,902 @@ class CNN {
                 currHeight = currentOutput[0].length;
             }
         }
+        
         let flat = this.flattenFeatures(currentOutput);
         let layerInput = flat;
+        
         for (let fcl of this.fcLayers)
             layerInput = this.fcForward(fcl, layerInput);
-        // Output layer
-        let result = [];
+        
+        this.outputLayer.input = layerInput.slice();
+        let logits = [];
         for (let n of this.outputLayer.neurons) {
             let sum = n.bias;
             for (let j = 0; j < layerInput.length; j++)
                 sum += layerInput[j] * n.weights[j];
-            let o = this.sigmoid(sum);
-            n.output = o;
-            result.push(o);
+            n.preAct = sum;
+            logits.push(sum);
         }
-        return result;
+        
+        let probs = this.softmax(logits);
+        for (let i = 0; i < this.outputLayer.neurons.length; i++) {
+            this.outputLayer.neurons[i].output = probs[i];
+        }
+        
+        return probs;
     }
 
-    /**
-     * Trains the network using a single image and its target vector.
-     * Only output layer weights are updated for brevity
-     */
-    train(imageObj, targetVec) {
-        let pred = this.predictImage(imageObj);
-        let out = this.outputLayer.neurons;
-        for (let i = 0; i < out.length; i++)
-            // Calculate error using sigmoid derivative
-            out[i].error = out[i].output * (1 - out[i].output) * (targetVec[i] - out[i].output);
-        // Update output weights using backprop
-        let flat = this.flattenedFeatures;
-        for (let i = 0; i < out.length; i++) {
-            for (let j = 0; j < out[i].weights.length; j++)
-                out[i].weights[j] += this.learningRate * out[i].error * flat[j];
-            out[i].bias += this.learningRate * out[i].error;
+    predictImage(imageObj) {
+        return this.forward(imageObj, false);
+    }
+
+    backward(targetVec) {
+        let outputGrad = [];
+        for (let i = 0; i < this.outputLayer.neurons.length; i++) {
+            let n = this.outputLayer.neurons[i];
+            n.error = n.output - targetVec[i];
+            outputGrad.push(n.error);
         }
+        
+        let prevGrad = this.backwardFC(this.outputLayer, outputGrad, true);
+        
+        for (let i = this.fcLayers.length - 1; i >= 0; i--) {
+            prevGrad = this.backwardFC(this.fcLayers[i], prevGrad, false);
+        }
+        
+        let convGrad = this.unflattenGradient(prevGrad);
+        
+        for (let i = this.convLayers.length - 1; i >= 0; i--) {
+            if (i < this.poolLayers.length) {
+                convGrad = this.backwardPool(this.poolLayers[i], convGrad);
+            }
+            convGrad = this.backwardConv(this.convLayers[i], convGrad);
+        }
+    }
+
+    backwardFC(layer, grad, isOutput) {
+        let inputGrad = new Array(layer.input.length).fill(0);
+        
+        for (let i = 0; i < layer.neurons.length; i++) {
+            let n = layer.neurons[i];
+            let delta;
+            if (isOutput) {
+                delta = grad[i];
+            } else {
+                delta = grad[i] * this.reluD(n.preAct) * n.dropoutMask;
+            }
+            n.error = delta;
+            
+            for (let j = 0; j < n.weights.length; j++) {
+                inputGrad[j] += delta * n.weights[j];
+            }
+        }
+        
+        return inputGrad;
+    }
+
+    backwardPool(layer, grad) {
+        let inputGrad = [];
+        let poolSize = layer.poolSize;
+        
+        for (let c = 0; c < layer.input.length; c++) {
+            let inH = layer.input[c].length;
+            let inW = layer.input[c][0].length;
+            let chan = [];
+            for (let h = 0; h < inH; h++) {
+                chan.push(new Array(inW).fill(0));
+            }
+            
+            for (let h = 0; h < grad[c].length; h++) {
+                for (let w = 0; w < grad[c][h].length; w++) {
+                    let idx = layer.maxIndices[c][h][w];
+                    let srcH = h * poolSize + idx.ph;
+                    let srcW = w * poolSize + idx.pw;
+                    chan[srcH][srcW] = grad[c][h][w];
+                }
+            }
+            inputGrad.push(chan);
+        }
+        
+        return inputGrad;
+    }
+
+    backwardConv(layer, grad) {
+        let kernel = layer.kernel;
+        let inChannels = layer.inChannels;
+        let paddedInput = layer.paddedInput;
+        
+        for (let h = 0; h < grad[0].length; h++) {
+            for (let w = 0; w < grad[0][0].length; w++) {
+                for (let f = 0; f < layer.filters.length; f++) {
+                    grad[f][h][w] *= this.reluD(layer.preAct[f][h][w]);
+                }
+            }
+        }
+        
+        for (let f = 0; f < layer.filters.length; f++) {
+            let filter = layer.filters[f];
+            let gradSum = 0;
+            for (let h = 0; h < grad[f].length; h++) {
+                for (let w = 0; w < grad[f][h].length; w++) {
+                    gradSum += grad[f][h][w];
+                }
+            }
+            
+            this.updateParam(filter, 'bias', gradSum, 'biasM', 'biasV');
+            
+            for (let c = 0; c < inChannels; c++) {
+                for (let kh = 0; kh < kernel; kh++) {
+                    for (let kw = 0; kw < kernel; kw++) {
+                        let wGrad = 0;
+                        for (let h = 0; h < grad[f].length; h++) {
+                            for (let w = 0; w < grad[f][h].length; w++) {
+                                let inH = h * layer.stride + kh;
+                                let inW = w * layer.stride + kw;
+                                wGrad += grad[f][h][w] * paddedInput[c][inH][inW];
+                            }
+                        }
+                        this.updateConvWeight(filter, c, kh, kw, wGrad);
+                    }
+                }
+            }
+        }
+        
+        let inputGrad = [];
+        for (let c = 0; c < inChannels; c++) {
+            let chan = [];
+            for (let h = 0; h < layer.input[0].length; h++) {
+                chan.push(new Array(layer.input[0][0].length).fill(0));
+            }
+            inputGrad.push(chan);
+        }
+        
+        for (let f = 0; f < layer.filters.length; f++) {
+            for (let h = 0; h < grad[f].length; h++) {
+                for (let w = 0; w < grad[f][h].length; w++) {
+                    for (let c = 0; c < inChannels; c++) {
+                        for (let kh = 0; kh < kernel; kh++) {
+                            for (let kw = 0; kw < kernel; kw++) {
+                                let inH = h * layer.stride + kh - layer.padding;
+                                let inW = w * layer.stride + kw - layer.padding;
+                                if (inH >= 0 && inH < inputGrad[c].length && inW >= 0 && inW < inputGrad[c][0].length) {
+                                    inputGrad[c][inH][inW] += grad[f][h][w] * layer.filters[f].weights[c][kh][kw];
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        return inputGrad;
+    }
+
+    updateConvWeight(filter, c, kh, kw, grad) {
+        if (this.optimizer === 'adam') {
+            this.t++;
+            filter.m[c][kh][kw] = this.beta1 * filter.m[c][kh][kw] + (1 - this.beta1) * grad;
+            filter.v[c][kh][kw] = this.beta2 * filter.v[c][kh][kw] + (1 - this.beta2) * grad * grad;
+            let mHat = filter.m[c][kh][kw] / (1 - Math.pow(this.beta1, this.t));
+            let vHat = filter.v[c][kh][kw] / (1 - Math.pow(this.beta2, this.t));
+            filter.weights[c][kh][kw] -= this.learningRate * mHat / (Math.sqrt(vHat) + this.epsilon);
+        } else {
+            filter.weights[c][kh][kw] -= this.learningRate * grad;
+        }
+    }
+
+    updateParam(obj, param, grad, mKey, vKey) {
+        if (this.optimizer === 'adam') {
+            this.t++;
+            obj[mKey] = this.beta1 * obj[mKey] + (1 - this.beta1) * grad;
+            obj[vKey] = this.beta2 * obj[vKey] + (1 - this.beta2) * grad * grad;
+            let mHat = obj[mKey] / (1 - Math.pow(this.beta1, this.t));
+            let vHat = obj[vKey] / (1 - Math.pow(this.beta2, this.t));
+            obj[param] -= this.learningRate * mHat / (Math.sqrt(vHat) + this.epsilon);
+        } else {
+            obj[param] -= this.learningRate * grad;
+        }
+    }
+
+    updateWeights() {
+        for (let layer of [...this.fcLayers, this.outputLayer]) {
+            for (let n of layer.neurons) {
+                for (let j = 0; j < n.weights.length; j++) {
+                    let grad = n.error * layer.input[j];
+                    if (this.optimizer === 'adam') {
+                        this.t++;
+                        n.m[j] = this.beta1 * n.m[j] + (1 - this.beta1) * grad;
+                        n.v[j] = this.beta2 * n.v[j] + (1 - this.beta2) * grad * grad;
+                        let mHat = n.m[j] / (1 - Math.pow(this.beta1, this.t));
+                        let vHat = n.v[j] / (1 - Math.pow(this.beta2, this.t));
+                        n.weights[j] -= this.learningRate * mHat / (Math.sqrt(vHat) + this.epsilon);
+                    } else {
+                        n.weights[j] -= this.learningRate * grad;
+                    }
+                }
+                this.updateParam(n, 'bias', n.error, 'biasM', 'biasV');
+            }
+        }
+    }
+
+    train(imageObj, targetVec) {
+        let pred = this.forward(imageObj, true);
+        this.backward(targetVec);
+        this.updateWeights();
+        return this.crossEntropyLoss(pred, targetVec);
+    }
+
+    trainBatch(batch) {
+        let totalLoss = 0;
+        for (let {image, target} of batch) {
+            totalLoss += this.train(image, target);
+        }
+        return totalLoss / batch.length;
+    }
+
+    toJSON() {
+        return {
+            config: {
+                inputWidth: this.inputWidth, inputHeight: this.inputHeight, channels: this.channels,
+                convFilters: this.convFilters, kernelSizes: this.kernelSizes, poolSizes: this.poolSizes,
+                fcSizes: this.fcSizes, outputSize: this.outputSize, learningRate: this.learningRate,
+                dropoutRate: this.dropoutRate, optimizer: this.optimizer
+            },
+            convLayers: this.convLayers.map(l => ({
+                filters: l.filters.map(f => ({ weights: f.weights, bias: f.bias, m: f.m, v: f.v, biasM: f.biasM, biasV: f.biasV })),
+                padding: l.padding, kernel: l.kernel, inChannels: l.inChannels
+            })),
+            poolLayers: this.poolLayers.map(l => ({ poolSize: l.poolSize })),
+            fcLayers: this.fcLayers.map(l => ({
+                neurons: l.neurons.map(n => ({ weights: n.weights, bias: n.bias, m: n.m, v: n.v, biasM: n.biasM, biasV: n.biasV }))
+            })),
+            outputLayer: {
+                neurons: this.outputLayer.neurons.map(n => ({ weights: n.weights, bias: n.bias, m: n.m, v: n.v, biasM: n.biasM, biasV: n.biasV }))
+            },
+            t: this.t
+        };
+    }
+
+    static fromJSON(json) {
+        let c = json.config;
+        let net = new CNN(c.inputWidth, c.inputHeight, c.channels, c.convFilters, c.kernelSizes, c.poolSizes, c.fcSizes, c.outputSize, c.learningRate, c.dropoutRate, c.optimizer);
+        
+        for (let i = 0; i < json.convLayers.length; i++) {
+            let jl = json.convLayers[i];
+            for (let f = 0; f < jl.filters.length; f++) {
+                net.convLayers[i].filters[f].weights = jl.filters[f].weights;
+                net.convLayers[i].filters[f].bias = jl.filters[f].bias;
+                net.convLayers[i].filters[f].m = jl.filters[f].m;
+                net.convLayers[i].filters[f].v = jl.filters[f].v;
+                net.convLayers[i].filters[f].biasM = jl.filters[f].biasM;
+                net.convLayers[i].filters[f].biasV = jl.filters[f].biasV;
+            }
+        }
+        
+        for (let i = 0; i < json.fcLayers.length; i++) {
+            let jl = json.fcLayers[i];
+            for (let n = 0; n < jl.neurons.length; n++) {
+                Object.assign(net.fcLayers[i].neurons[n], jl.neurons[n]);
+            }
+        }
+        
+        for (let n = 0; n < json.outputLayer.neurons.length; n++) {
+            Object.assign(net.outputLayer.neurons[n], json.outputLayer.neurons[n]);
+        }
+        
+        net.t = json.t || 0;
+        return net;
     }
 }
 
-/** ========= Utility & UI Functions ========== **/
+// ============== Dataset Management ==============
+let dataset = { train: [], test: [], all: [] };
+let uploadedImages = [];
+let stopTrainingFlag = false;
 
-// Converts CSV text into structured image data
+function shuffle(arr) {
+    for (let i = arr.length - 1; i > 0; i--) {
+        let j = Math.floor(Math.random() * (i + 1));
+        [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    return arr;
+}
+
+function oneHot(label, numClasses) {
+    let vec = new Array(numClasses).fill(0);
+    vec[label] = 1;
+    return vec;
+}
+
+function augmentImage(data, width, height) {
+    let augmented = JSON.parse(JSON.stringify(data));
+    
+    if (Math.random() < 0.5) {
+        for (let c = 0; c < augmented.length; c++) {
+            for (let h = 0; h < height; h++) {
+                augmented[c][h].reverse();
+            }
+        }
+    }
+    
+    let noise = 0.05;
+    for (let c = 0; c < augmented.length; c++) {
+        for (let h = 0; h < height; h++) {
+            for (let w = 0; w < width; w++) {
+                augmented[c][h][w] = Math.max(0, Math.min(1, augmented[c][h][w] + (Math.random() - 0.5) * noise));
+            }
+        }
+    }
+    
+    return augmented;
+}
+
+function generateSyntheticDataset() {
+    let w = +document.getElementById("imgWidth").value;
+    let h = +document.getElementById("imgHeight").value;
+    let ch = +document.getElementById("imgChannels").value;
+    let numClasses = +document.getElementById("outputSize").value;
+    let samplesPerClass = +document.getElementById("samplesPerClass").value;
+    
+    dataset.all = [];
+    
+    for (let cls = 0; cls < numClasses; cls++) {
+        for (let s = 0; s < samplesPerClass; s++) {
+            let data = [];
+            for (let c = 0; c < ch; c++) {
+                let chan = [];
+                for (let i = 0; i < h; i++) {
+                    let row = [];
+                    for (let j = 0; j < w; j++) {
+                        let pattern = 0;
+                        switch(cls % 5) {
+                            case 0: pattern = (i + j) / (h + w); break;
+                            case 1: pattern = Math.abs(i - h/2) / h; break;
+                            case 2: pattern = Math.abs(j - w/2) / w; break;
+                            case 3: pattern = ((i * j) % (cls + 2)) / (cls + 2); break;
+                            case 4: pattern = Math.sin(i * cls * 0.3) * 0.5 + 0.5; break;
+                        }
+                        row.push(pattern + (Math.random() - 0.5) * 0.2);
+                    }
+                    chan.push(row);
+                }
+                data.push(chan);
+            }
+            dataset.all.push({
+                image: { data, width: w, height: h, channels: ch },
+                label: cls,
+                target: oneHot(cls, numClasses)
+            });
+        }
+    }
+    
+    splitDataset();
+    updateDatasetInfo();
+    previewDataset();
+}
+
+function splitDataset() {
+    let splitRatio = +document.getElementById("trainSplit").value / 100;
+    shuffle(dataset.all);
+    let splitIdx = Math.floor(dataset.all.length * splitRatio);
+    dataset.train = dataset.all.slice(0, splitIdx);
+    dataset.test = dataset.all.slice(splitIdx);
+    updateDatasetInfo();
+}
+
+function updateDatasetInfo() {
+    let info = document.getElementById("datasetInfo");
+    if (dataset.all.length === 0) {
+        info.style.display = 'none';
+        return;
+    }
+    info.style.display = 'block';
+    let classCounts = {};
+    for (let item of dataset.all) {
+        classCounts[item.label] = (classCounts[item.label] || 0) + 1;
+    }
+    info.innerHTML = `<strong>Dataset:</strong> ${dataset.all.length} total | Train: ${dataset.train.length} | Test: ${dataset.test.length}<br>
+        <strong>Classes:</strong> ${Object.entries(classCounts).map(([k,v]) => `${k}: ${v}`).join(', ')}`;
+}
+
+function previewDataset() {
+    let canvas = document.getElementById("datasetPreview");
+    let ctx = canvas.getContext("2d");
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    
+    let gridSize = 10;
+    let cellW = canvas.width / gridSize;
+    let cellH = canvas.height / gridSize;
+    
+    for (let i = 0; i < Math.min(gridSize * gridSize, dataset.all.length); i++) {
+        let item = dataset.all[i];
+        let x = (i % gridSize) * cellW;
+        let y = Math.floor(i / gridSize) * cellH;
+        drawImageToCanvas(ctx, item.image, x, y, cellW - 1, cellH - 1);
+    }
+}
+
+function drawImageToCanvas(ctx, imageObj, x, y, w, h) {
+    let { data, width, height, channels } = imageObj;
+    let imgData = ctx.createImageData(width, height);
+    
+    for (let i = 0; i < height; i++) {
+        for (let j = 0; j < width; j++) {
+            let idx = (i * width + j) * 4;
+            if (channels === 1) {
+                let v = Math.floor(data[0][i][j] * 255);
+                imgData.data[idx] = v;
+                imgData.data[idx + 1] = v;
+                imgData.data[idx + 2] = v;
+            } else {
+                imgData.data[idx] = Math.floor((data[0]?.[i]?.[j] || 0) * 255);
+                imgData.data[idx + 1] = Math.floor((data[1]?.[i]?.[j] || 0) * 255);
+                imgData.data[idx + 2] = Math.floor((data[2]?.[i]?.[j] || 0) * 255);
+            }
+            imgData.data[idx + 3] = 255;
+        }
+    }
+    
+    let tempCanvas = document.createElement('canvas');
+    tempCanvas.width = width;
+    tempCanvas.height = height;
+    tempCanvas.getContext('2d').putImageData(imgData, 0, 0);
+    ctx.drawImage(tempCanvas, x, y, w, h);
+}
+
+function handleImageUpload(event) {
+    let files = event.target.files;
+    let canvas = document.getElementById("uploadPreview");
+    let ctx = canvas.getContext("2d");
+    
+    uploadedImages = [];
+    
+    for (let file of files) {
+        let reader = new FileReader();
+        reader.onload = function(e) {
+            let img = new Image();
+            img.onload = function() {
+                let w = +document.getElementById("imgWidth").value;
+                let h = +document.getElementById("imgHeight").value;
+                let ch = +document.getElementById("imgChannels").value;
+                
+                let tempCanvas = document.createElement('canvas');
+                tempCanvas.width = w;
+                tempCanvas.height = h;
+                let tempCtx = tempCanvas.getContext('2d');
+                tempCtx.drawImage(img, 0, 0, w, h);
+                
+                let imgData = tempCtx.getImageData(0, 0, w, h);
+                let data = [];
+                
+                for (let c = 0; c < ch; c++) {
+                    let chan = [];
+                    for (let i = 0; i < h; i++) {
+                        let row = [];
+                        for (let j = 0; j < w; j++) {
+                            let idx = (i * w + j) * 4;
+                            if (ch === 1) {
+                                row.push((imgData.data[idx] + imgData.data[idx+1] + imgData.data[idx+2]) / 765);
+                            } else {
+                                row.push(imgData.data[idx + c] / 255);
+                            }
+                        }
+                        chan.push(row);
+                    }
+                    data.push(chan);
+                }
+                
+                uploadedImages.push({ data, width: w, height: h, channels: ch });
+                
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+            };
+            img.src = e.target.result;
+        };
+        reader.readAsDataURL(file);
+    }
+}
+
+function addUploadedImages() {
+    let label = +document.getElementById("uploadLabel").value;
+    let numClasses = +document.getElementById("outputSize").value;
+    
+    for (let img of uploadedImages) {
+        dataset.all.push({
+            image: img,
+            label: label,
+            target: oneHot(label, numClasses)
+        });
+    }
+    
+    splitDataset();
+    updateDatasetInfo();
+    previewDataset();
+    uploadedImages = [];
+}
+
+function handleSingleImageUpload(event) {
+    let file = event.target.files[0];
+    if (!file) return;
+    
+    let reader = new FileReader();
+    reader.onload = function(e) {
+        let img = new Image();
+        img.onload = function() {
+            let w = +document.getElementById("imgWidth").value;
+            let h = +document.getElementById("imgHeight").value;
+            let ch = +document.getElementById("imgChannels").value;
+            
+            let tempCanvas = document.createElement('canvas');
+            tempCanvas.width = w;
+            tempCanvas.height = h;
+            let tempCtx = tempCanvas.getContext('2d');
+            tempCtx.drawImage(img, 0, 0, w, h);
+            
+            let imgData = tempCtx.getImageData(0, 0, w, h);
+            let data = [];
+            
+            for (let c = 0; c < ch; c++) {
+                let chan = [];
+                for (let i = 0; i < h; i++) {
+                    let row = [];
+                    for (let j = 0; j < w; j++) {
+                        let idx = (i * w + j) * 4;
+                        if (ch === 1) {
+                            row.push((imgData.data[idx] + imgData.data[idx+1] + imgData.data[idx+2]) / 765);
+                        } else {
+                            row.push(imgData.data[idx + c] / 255);
+                        }
+                    }
+                    chan.push(row);
+                }
+                data.push(chan);
+            }
+            
+            sampleImage = { data, width: w, height: h, channels: ch };
+            visualizeInput();
+            document.getElementById("imageStatus").textContent = "Image loaded from file!";
+        };
+        img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+}
+
+// ============== Training ==============
+async function trainOnDataset() {
+    if (!cnn) { alert("Create network first!"); return; }
+    if (dataset.train.length === 0) { alert("Generate or load dataset first!"); return; }
+    
+    stopTrainingFlag = false;
+    document.getElementById("trainBtn").disabled = true;
+    document.getElementById("stopBtn").disabled = false;
+    
+    let epochs = +document.getElementById("trainEpochs").value;
+    let batchSize = +document.getElementById("batchSize").value;
+    let augment = document.getElementById("enableAugmentation").checked;
+    let log = document.getElementById("trainingLog");
+    log.innerHTML = "";
+    
+    for (let epoch = 0; epoch < epochs && !stopTrainingFlag; epoch++) {
+        let trainData = shuffle([...dataset.train]);
+        let totalLoss = 0;
+        let correct = 0;
+        
+        for (let i = 0; i < trainData.length && !stopTrainingFlag; i += batchSize) {
+            let batch = trainData.slice(i, i + batchSize).map(item => {
+                let img = item.image;
+                if (augment) {
+                    img = { ...img, data: augmentImage(img.data, img.width, img.height) };
+                }
+                return { image: img, target: item.target };
+            });
+            
+            for (let {image, target} of batch) {
+                let pred = cnn.forward(image, true);
+                totalLoss += cnn.crossEntropyLoss(pred, target);
+                cnn.backward(target);
+                cnn.updateWeights();
+                
+                let predClass = pred.indexOf(Math.max(...pred));
+                let actualClass = target.indexOf(1);
+                if (predClass === actualClass) correct++;
+            }
+            
+            let progress = ((epoch * trainData.length + i + batch.length) / (epochs * trainData.length)) * 100;
+            document.getElementById("trainProgress").style.width = progress + "%";
+            
+            if (i % (batchSize * 10) === 0) {
+                await new Promise(r => setTimeout(r, 0));
+            }
+        }
+        
+        let avgLoss = totalLoss / trainData.length;
+        let accuracy = (correct / trainData.length * 100).toFixed(2);
+        log.innerHTML += `Epoch ${epoch + 1}/${epochs} - Loss: ${avgLoss.toFixed(4)} - Accuracy: ${accuracy}%\n`;
+        log.scrollTop = log.scrollHeight;
+        
+        document.getElementById("trainStatus").textContent = `Epoch ${epoch + 1}/${epochs} complete`;
+        await new Promise(r => setTimeout(r, 0));
+    }
+    
+    document.getElementById("trainBtn").disabled = false;
+    document.getElementById("stopBtn").disabled = true;
+    document.getElementById("trainStatus").textContent = stopTrainingFlag ? "Training stopped" : "Training complete!";
+}
+
+function stopTraining() {
+    stopTrainingFlag = true;
+}
+
+// ============== Evaluation ==============
+function evaluateModel() {
+    if (!cnn || dataset.test.length === 0) {
+        alert("Need trained model and test data!");
+        return;
+    }
+    
+    let numClasses = +document.getElementById("outputSize").value;
+    let confusion = [];
+    for (let i = 0; i < numClasses; i++) {
+        confusion.push(new Array(numClasses).fill(0));
+    }
+    
+    let correct = 0;
+    let totalLoss = 0;
+    let classCorrect = new Array(numClasses).fill(0);
+    let classTotal = new Array(numClasses).fill(0);
+    
+    for (let item of dataset.test) {
+        let pred = cnn.predictImage(item.image);
+        totalLoss += cnn.crossEntropyLoss(pred, item.target);
+        
+        let predClass = pred.indexOf(Math.max(...pred));
+        let actualClass = item.label;
+        
+        confusion[actualClass][predClass]++;
+        classTotal[actualClass]++;
+        
+        if (predClass === actualClass) {
+            correct++;
+            classCorrect[actualClass]++;
+        }
+    }
+    
+    let accuracy = (correct / dataset.test.length * 100).toFixed(2);
+    let avgLoss = (totalLoss / dataset.test.length).toFixed(4);
+    
+    let precision = [], recall = [], f1 = [];
+    for (let i = 0; i < numClasses; i++) {
+        let tp = confusion[i][i];
+        let fp = 0, fn = 0;
+        for (let j = 0; j < numClasses; j++) {
+            if (j !== i) {
+                fp += confusion[j][i];
+                fn += confusion[i][j];
+            }
+        }
+        let p = tp / (tp + fp) || 0;
+        let r = tp / (tp + fn) || 0;
+        precision.push(p);
+        recall.push(r);
+        f1.push(2 * p * r / (p + r) || 0);
+    }
+    
+    let avgF1 = (f1.reduce((a,b) => a+b, 0) / numClasses * 100).toFixed(2);
+    
+    document.getElementById("metricsGrid").innerHTML = `
+        <div class="metric-card"><div class="metric-value">${accuracy}%</div><div class="metric-label">Accuracy</div></div>
+        <div class="metric-card"><div class="metric-value">${avgLoss}</div><div class="metric-label">Avg Loss</div></div>
+        <div class="metric-card"><div class="metric-value">${avgF1}%</div><div class="metric-label">Macro F1</div></div>
+        <div class="metric-card"><div class="metric-value">${dataset.test.length}</div><div class="metric-label">Test Samples</div></div>
+    `;
+    
+    let matrixHtml = '<h4>Confusion Matrix</h4><table class="confusion-matrix"><tr><th></th>';
+    for (let i = 0; i < numClasses; i++) matrixHtml += `<th>Pred ${i}</th>`;
+    matrixHtml += '</tr>';
+    for (let i = 0; i < numClasses; i++) {
+        matrixHtml += `<tr><th>True ${i}</th>`;
+        for (let j = 0; j < numClasses; j++) {
+            let bg = i === j ? '#c8e6c9' : (confusion[i][j] > 0 ? '#ffcdd2' : '#fff');
+            matrixHtml += `<td style="background:${bg}">${confusion[i][j]}</td>`;
+        }
+        matrixHtml += '</tr>';
+    }
+    matrixHtml += '</table>';
+    
+    document.getElementById("confusionMatrix").innerHTML = matrixHtml;
+}
+
+function predictSingleImage() {
+    if (!cnn) return;
+    let pred = cnn.predictImage(sampleImage);
+    let maxIdx = pred.indexOf(Math.max(...pred));
+    let confidence = (pred[maxIdx] * 100).toFixed(2);
+    
+    let barHtml = '<h4>Class Probabilities</h4>';
+    for (let i = 0; i < pred.length; i++) {
+        let pct = (pred[i] * 100).toFixed(1);
+        let bg = i === maxIdx ? '#4285f4' : '#e0e0e0';
+        barHtml += `<div style="margin:2px 0"><span style="display:inline-block;width:60px">Class ${i}:</span>
+            <div style="display:inline-block;width:200px;height:16px;background:#f0f0f0;border-radius:3px;overflow:hidden;vertical-align:middle">
+                <div style="width:${pct}%;height:100%;background:${bg}"></div>
+            </div> ${pct}%</div>`;
+    }
+    
+    document.getElementById("predictionResult").innerHTML = `
+        <div class="metric"><strong>Prediction: Class ${maxIdx}</strong> (${confidence}% confidence)</div>
+        ${barHtml}
+    `;
+}
+
+// ============== Visualization ==============
+function visualizeFilters() {
+    if (!cnn) return;
+    let container = document.getElementById("filterViz");
+    container.innerHTML = '<h4>Convolutional Filters (Layer 1)</h4>';
+    
+    let layer = cnn.convLayers[0];
+    for (let f = 0; f < layer.filters.length; f++) {
+        let filter = layer.filters[f];
+        let kernel = filter.weights[0].length;
+        let canvas = document.createElement('canvas');
+        canvas.width = kernel * 10;
+        canvas.height = kernel * 10;
+        let ctx = canvas.getContext('2d');
+        
+        let min = Infinity, max = -Infinity;
+        for (let c = 0; c < filter.weights.length; c++) {
+            for (let h = 0; h < kernel; h++) {
+                for (let w = 0; w < kernel; w++) {
+                    min = Math.min(min, filter.weights[c][h][w]);
+                    max = Math.max(max, filter.weights[c][h][w]);
+                }
+            }
+        }
+        
+        for (let h = 0; h < kernel; h++) {
+            for (let w = 0; w < kernel; w++) {
+                let val = 0;
+                for (let c = 0; c < filter.weights.length; c++) {
+                    val += filter.weights[c][h][w];
+                }
+                val /= filter.weights.length;
+                let norm = (val - min) / (max - min + 1e-8);
+                let color = Math.floor(norm * 255);
+                ctx.fillStyle = `rgb(${color},${color},${color})`;
+                ctx.fillRect(w * 10, h * 10, 10, 10);
+            }
+        }
+        
+        let div = document.createElement('div');
+        div.className = 'filter-viz';
+        div.appendChild(canvas);
+        div.innerHTML += `<span>Filter ${f}</span>`;
+        container.appendChild(div);
+    }
+}
+
+function visualizeActivations() {
+    if (!cnn) return;
+    cnn.predictImage(sampleImage);
+    
+    let container = document.getElementById("activationViz");
+    container.innerHTML = '<h4>Layer Activations</h4>';
+    
+    for (let i = 0; i < cnn.convLayers.length; i++) {
+        let layer = cnn.convLayers[i];
+        if (!layer.output) continue;
+        
+        let div = document.createElement('div');
+        div.innerHTML = `<strong>Conv Layer ${i + 1}</strong><br>`;
+        
+        for (let f = 0; f < Math.min(8, layer.output.length); f++) {
+            let h = layer.output[f].length;
+            let w = layer.output[f][0].length;
+            let canvas = document.createElement('canvas');
+            canvas.width = w * 2;
+            canvas.height = h * 2;
+            canvas.style.margin = '2px';
+            let ctx = canvas.getContext('2d');
+            
+            let max = 0;
+            for (let hi = 0; hi < h; hi++) {
+                for (let wi = 0; wi < w; wi++) {
+                    max = Math.max(max, layer.output[f][hi][wi]);
+                }
+            }
+            
+            for (let hi = 0; hi < h; hi++) {
+                for (let wi = 0; wi < w; wi++) {
+                    let val = Math.floor((layer.output[f][hi][wi] / (max + 1e-8)) * 255);
+                    ctx.fillStyle = `rgb(${val},${val},${val})`;
+                    ctx.fillRect(wi * 2, hi * 2, 2, 2);
+                }
+            }
+            div.appendChild(canvas);
+        }
+        container.appendChild(div);
+    }
+}
+
+function visualizeInput() {
+    let canvas = document.getElementById("inputCanvas");
+    let ctx = canvas.getContext("2d");
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    drawImageToCanvas(ctx, sampleImage, 0, 0, canvas.width, canvas.height);
+}
+
+// ============== Model Persistence ==============
+function saveModel() {
+    if (!cnn) return;
+    localStorage.setItem('cnn_model', JSON.stringify(cnn.toJSON()));
+    document.getElementById("networkStatus").textContent = "Model saved to localStorage!";
+}
+
+function loadModel() {
+    let saved = localStorage.getItem('cnn_model');
+    if (!saved) {
+        document.getElementById("networkStatus").textContent = "No saved model found!";
+        return;
+    }
+    try {
+        cnn = CNN.fromJSON(JSON.parse(saved));
+        document.getElementById("imgWidth").value = cnn.inputWidth;
+        document.getElementById("imgHeight").value = cnn.inputHeight;
+        document.getElementById("imgChannels").value = cnn.channels;
+        document.getElementById("convFilters").value = cnn.convFilters.join(',');
+        document.getElementById("kernelSizes").value = cnn.kernelSizes.join(',');
+        document.getElementById("poolSizes").value = cnn.poolSizes.join(',');
+        document.getElementById("fcSizes").value = cnn.fcSizes.join(',');
+        document.getElementById("outputSize").value = cnn.outputSize;
+        document.getElementById("learningRate").value = cnn.learningRate;
+        document.getElementById("dropoutRate").value = cnn.dropoutRate;
+        document.getElementById("optimizer").value = cnn.optimizer;
+        document.getElementById("networkStatus").textContent = "Model loaded from localStorage!";
+    } catch(e) {
+        document.getElementById("networkStatus").textContent = "Error loading model: " + e;
+    }
+}
+
+function exportModel() {
+    if (!cnn) return;
+    let data = JSON.stringify(cnn.toJSON(), null, 2);
+    let blob = new Blob([data], { type: 'application/json' });
+    let url = URL.createObjectURL(blob);
+    let a = document.createElement('a');
+    a.href = url;
+    a.download = 'cnn_model.json';
+    a.click();
+    URL.revokeObjectURL(url);
+}
+
+function importModel(event) {
+    let file = event.target.files[0];
+    if (!file) return;
+    let reader = new FileReader();
+    reader.onload = function(e) {
+        try {
+            cnn = CNN.fromJSON(JSON.parse(e.target.result));
+            document.getElementById("imgWidth").value = cnn.inputWidth;
+            document.getElementById("imgHeight").value = cnn.inputHeight;
+            document.getElementById("imgChannels").value = cnn.channels;
+            document.getElementById("convFilters").value = cnn.convFilters.join(',');
+            document.getElementById("kernelSizes").value = cnn.kernelSizes.join(',');
+            document.getElementById("poolSizes").value = cnn.poolSizes.join(',');
+            document.getElementById("fcSizes").value = cnn.fcSizes.join(',');
+            document.getElementById("outputSize").value = cnn.outputSize;
+            document.getElementById("learningRate").value = cnn.learningRate;
+            document.getElementById("dropoutRate").value = cnn.dropoutRate;
+            document.getElementById("optimizer").value = cnn.optimizer;
+            document.getElementById("networkStatus").textContent = "Model imported from file!";
+        } catch(e) {
+            document.getElementById("networkStatus").textContent = "Error importing: " + e;
+        }
+    };
+    reader.readAsText(file);
+}
+
+// ============== Utility Functions ==============
 function parseImageCSV(csv, ch, h, w) {
     let arr = [];
     let lines = csv.trim().split("\n");
@@ -352,7 +1369,6 @@ function parseImageCSV(csv, ch, h, w) {
     return arr;
 }
 
-// Creates a random image for input and testing
 function randomImage(ch, h, w) {
     let d = [];
     for (let c = 0; c < ch; c++) {
@@ -368,7 +1384,6 @@ function randomImage(ch, h, w) {
     return d;
 }
 
-/** Stores global CNN instance and sample image definitions for UI */
 let cnn = null;
 let sampleImage = {
     data: randomImage(
@@ -381,7 +1396,6 @@ let sampleImage = {
     channels: +document.getElementById("imgChannels").value
 };
 
-/** Creates a new CNN instance using form input values */
 function createNetwork() {
     let w = +document.getElementById("imgWidth").value;
     let h = +document.getElementById("imgHeight").value;
@@ -392,17 +1406,31 @@ function createNetwork() {
     let fcSizes = document.getElementById("fcSizes").value.split(',').map(x=>+x.trim());
     let outputSize = +document.getElementById("outputSize").value;
     let lr = +document.getElementById("learningRate").value;
-    cnn = new CNN(w, h, ch, convFilters, kernelSizes, poolSizes, fcSizes, outputSize, lr);
-    document.getElementById("networkStatus").textContent = "CNN created!";
+    let dropout = +document.getElementById("dropoutRate").value;
+    let optimizer = document.getElementById("optimizer").value;
+    
+    cnn = new CNN(w, h, ch, convFilters, kernelSizes, poolSizes, fcSizes, outputSize, lr, dropout, optimizer);
+    
+    let totalParams = 0;
+    for (let l of cnn.convLayers) {
+        for (let f of l.filters) {
+            totalParams += f.weights.flat(3).length + 1;
+        }
+    }
+    for (let l of [...cnn.fcLayers, cnn.outputLayer]) {
+        for (let n of l.neurons) {
+            totalParams += n.weights.length + 1;
+        }
+    }
+    
+    document.getElementById("networkStatus").textContent = `CNN created! (${totalParams.toLocaleString()} parameters)`;
 }
 
-/** Generates random image data and displays as CSV */
 function randomizeImage() {
     let w = +document.getElementById("imgWidth").value;
     let h = +document.getElementById("imgHeight").value;
     let ch = +document.getElementById("imgChannels").value;
     sampleImage = { data: randomImage(ch, h, w), width: w, height: h, channels: ch };
-    // Set textarea value to generated CSV for user viewing/editing
     let csv = '';
     for (let c = 0; c < ch; c++) {
         for (let i = 0; i < h; i++) {
@@ -411,9 +1439,9 @@ function randomizeImage() {
     }
     document.getElementById("imageCSV").value = csv.trim();
     document.getElementById("imageStatus").textContent = "Random image generated!";
+    visualizeInput();
 }
 
-/** Loads image data from user-edited CSV and sets up the image object */
 function loadImage() {
     let w = +document.getElementById("imgWidth").value;
     let h = +document.getElementById("imgHeight").value;
@@ -423,32 +1451,13 @@ function loadImage() {
         let arr = parseImageCSV(csv, ch, h, w);
         sampleImage = { data: arr, width: w, height: h, channels: ch };
         document.getElementById("imageStatus").textContent = "Image loaded from CSV!";
+        visualizeInput();
     } catch(e) {
         document.getElementById("imageStatus").textContent = "Error: " + e;
     }
 }
 
-/** Trains the network for the specified number of epochs using the current image and target vector */
-function trainNetwork() {
-    if (!cnn) return;
-    let epochs = +document.getElementById("trainEpochs").value;
-    let target = document.getElementById("targetVec").value.split(',').map(Number);
-    for (let ep = 0; ep < epochs; ep++)
-        cnn.train(sampleImage, target);
-    document.getElementById("trainStatus").textContent = "Training complete ("+epochs+" epochs)";
-}
-
-/** Makes a prediction from the current image and displays the results */
-function predictImage() {
-    if (!cnn) return;
-    let pred = cnn.predictImage(sampleImage);
-    document.getElementById("predictionResult").innerHTML =
-        "<div class='metric'>Predicted: [" + pred.map(x=>x.toFixed(4)).join(", ") + "]</div>";
-}
-
-// On page load, create a random image so user gets a prompt
 randomizeImage();
-
 </script>
 </body>
 </html>
