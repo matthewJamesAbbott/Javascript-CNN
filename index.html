@@ -265,20 +265,47 @@ class CNN {
 
     relu(x) { return Math.max(0, x); }
     reluD(x) { return x > 0 ? 1 : 0; }
+    
+    clamp(x, min, max) { return Math.max(min, Math.min(max, x)); }
+    
+    isFiniteNum(x) { return typeof x === 'number' && isFinite(x) && !isNaN(x); }
 
     softmax(arr) {
-        let max = Math.max(...arr);
-        let exps = arr.map(x => Math.exp(x - max));
-        let sum = exps.reduce((a, b) => a + b, 0);
-        return exps.map(x => x / sum);
+        let max = -Infinity;
+        for (let i = 0; i < arr.length; i++) {
+            if (this.isFiniteNum(arr[i]) && arr[i] > max) max = arr[i];
+        }
+        if (!this.isFiniteNum(max)) max = 0;
+        
+        let exps = [];
+        let sum = 0;
+        for (let i = 0; i < arr.length; i++) {
+            let val = this.isFiniteNum(arr[i]) ? arr[i] : 0;
+            let e = Math.exp(this.clamp(val - max, -500, 500));
+            exps.push(e);
+            sum += e;
+        }
+        
+        if (sum <= 0 || !this.isFiniteNum(sum)) sum = 1;
+        
+        let result = [];
+        for (let i = 0; i < exps.length; i++) {
+            let p = exps[i] / sum;
+            result.push(this.clamp(p, 1e-15, 1 - 1e-15));
+        }
+        return result;
     }
 
     crossEntropyLoss(predicted, target) {
         let loss = 0;
         for (let i = 0; i < target.length; i++) {
-            loss -= target[i] * Math.log(Math.max(predicted[i], 1e-15));
+            let p = this.clamp(predicted[i], 1e-15, 1 - 1e-15);
+            let t = target[i];
+            if (t > 0) {
+                loss -= t * Math.log(p);
+            }
         }
-        return loss;
+        return this.isFiniteNum(loss) ? loss : 0;
     }
 
     applyDropout(layer) {
@@ -344,6 +371,7 @@ class CNN {
                             }
                         }
                     }
+                    sum = this.isFiniteNum(sum) ? sum : 0;
                     preRow.push(sum);
                     row.push(this.relu(sum));
                 }
@@ -433,6 +461,7 @@ class CNN {
             let sum = n.bias;
             for (let j = 0; j < input.length; j++)
                 sum += input[j] * n.weights[j];
+            sum = this.isFiniteNum(sum) ? sum : 0;
             n.preAct = sum;
             n.output = this.relu(sum) * n.dropoutMask;
             outputs.push(n.output);
@@ -469,6 +498,7 @@ class CNN {
             let sum = n.bias;
             for (let j = 0; j < layerInput.length; j++)
                 sum += layerInput[j] * n.weights[j];
+            sum = this.isFiniteNum(sum) ? sum : 0;
             n.preAct = sum;
             logits.push(sum);
         }
@@ -569,19 +599,21 @@ class CNN {
             }
         }
         
+        layer.gradients = [];
         for (let f = 0; f < layer.filters.length; f++) {
-            let filter = layer.filters[f];
+            let filterGrads = { biasGrad: 0, weightGrads: [] };
             let gradSum = 0;
             for (let h = 0; h < grad[f].length; h++) {
                 for (let w = 0; w < grad[f][h].length; w++) {
                     gradSum += grad[f][h][w];
                 }
             }
-            
-            this.updateParam(filter, 'bias', gradSum, 'biasM', 'biasV');
+            filterGrads.biasGrad = gradSum;
             
             for (let c = 0; c < inChannels; c++) {
+                let chanGrads = [];
                 for (let kh = 0; kh < kernel; kh++) {
+                    let rowGrads = [];
                     for (let kw = 0; kw < kernel; kw++) {
                         let wGrad = 0;
                         for (let h = 0; h < grad[f].length; h++) {
@@ -591,10 +623,13 @@ class CNN {
                                 wGrad += grad[f][h][w] * paddedInput[c][inH][inW];
                             }
                         }
-                        this.updateConvWeight(filter, c, kh, kw, wGrad);
+                        rowGrads.push(wGrad);
                     }
+                    chanGrads.push(rowGrads);
                 }
+                filterGrads.weightGrads.push(chanGrads);
             }
+            layer.gradients.push(filterGrads);
         }
         
         let inputGrad = [];
@@ -627,44 +662,80 @@ class CNN {
         return inputGrad;
     }
 
+    clipGrad(grad, maxNorm = 1.0) {
+        if (!this.isFiniteNum(grad)) return 0;
+        return this.clamp(grad, -maxNorm, maxNorm);
+    }
+
     updateConvWeight(filter, c, kh, kw, grad) {
+        grad = this.clipGrad(grad);
         if (this.optimizer === 'adam') {
-            this.t++;
+            let t = this.t;
             filter.m[c][kh][kw] = this.beta1 * filter.m[c][kh][kw] + (1 - this.beta1) * grad;
             filter.v[c][kh][kw] = this.beta2 * filter.v[c][kh][kw] + (1 - this.beta2) * grad * grad;
-            let mHat = filter.m[c][kh][kw] / (1 - Math.pow(this.beta1, this.t));
-            let vHat = filter.v[c][kh][kw] / (1 - Math.pow(this.beta2, this.t));
-            filter.weights[c][kh][kw] -= this.learningRate * mHat / (Math.sqrt(vHat) + this.epsilon);
+            let mHat = filter.m[c][kh][kw] / (1 - Math.pow(this.beta1, t));
+            let vHat = filter.v[c][kh][kw] / (1 - Math.pow(this.beta2, t));
+            let update = this.learningRate * mHat / (Math.sqrt(vHat) + this.epsilon);
+            if (this.isFiniteNum(update)) {
+                filter.weights[c][kh][kw] -= update;
+            }
         } else {
             filter.weights[c][kh][kw] -= this.learningRate * grad;
         }
     }
 
     updateParam(obj, param, grad, mKey, vKey) {
+        grad = this.clipGrad(grad);
         if (this.optimizer === 'adam') {
-            this.t++;
+            let t = this.t;
             obj[mKey] = this.beta1 * obj[mKey] + (1 - this.beta1) * grad;
             obj[vKey] = this.beta2 * obj[vKey] + (1 - this.beta2) * grad * grad;
-            let mHat = obj[mKey] / (1 - Math.pow(this.beta1, this.t));
-            let vHat = obj[vKey] / (1 - Math.pow(this.beta2, this.t));
-            obj[param] -= this.learningRate * mHat / (Math.sqrt(vHat) + this.epsilon);
+            let mHat = obj[mKey] / (1 - Math.pow(this.beta1, t));
+            let vHat = obj[vKey] / (1 - Math.pow(this.beta2, t));
+            let update = this.learningRate * mHat / (Math.sqrt(vHat) + this.epsilon);
+            if (this.isFiniteNum(update)) {
+                obj[param] -= update;
+            }
         } else {
             obj[param] -= this.learningRate * grad;
         }
     }
 
     updateWeights() {
+        this.t++;
+        let t = this.t;
+        
+        for (let layer of this.convLayers) {
+            if (!layer.gradients) continue;
+            for (let f = 0; f < layer.filters.length; f++) {
+                let filter = layer.filters[f];
+                let grads = layer.gradients[f];
+                
+                this.updateParam(filter, 'bias', grads.biasGrad, 'biasM', 'biasV');
+                
+                for (let c = 0; c < grads.weightGrads.length; c++) {
+                    for (let kh = 0; kh < grads.weightGrads[c].length; kh++) {
+                        for (let kw = 0; kw < grads.weightGrads[c][kh].length; kw++) {
+                            this.updateConvWeight(filter, c, kh, kw, grads.weightGrads[c][kh][kw]);
+                        }
+                    }
+                }
+            }
+        }
+        
         for (let layer of [...this.fcLayers, this.outputLayer]) {
             for (let n of layer.neurons) {
                 for (let j = 0; j < n.weights.length; j++) {
-                    let grad = n.error * layer.input[j];
+                    let grad = this.clipGrad(n.error * layer.input[j]);
                     if (this.optimizer === 'adam') {
-                        this.t++;
                         n.m[j] = this.beta1 * n.m[j] + (1 - this.beta1) * grad;
                         n.v[j] = this.beta2 * n.v[j] + (1 - this.beta2) * grad * grad;
-                        let mHat = n.m[j] / (1 - Math.pow(this.beta1, this.t));
-                        let vHat = n.v[j] / (1 - Math.pow(this.beta2, this.t));
-                        n.weights[j] -= this.learningRate * mHat / (Math.sqrt(vHat) + this.epsilon);
+                        let mHat = n.m[j] / (1 - Math.pow(this.beta1, t));
+                        let vHat = n.v[j] / (1 - Math.pow(this.beta2, t));
+                        let update = this.learningRate * mHat / (Math.sqrt(vHat) + this.epsilon);
+                        if (this.isFiniteNum(update)) {
+                            n.weights[j] -= update;
+                        }
                     } else {
                         n.weights[j] -= this.learningRate * grad;
                     }
@@ -675,10 +746,29 @@ class CNN {
     }
 
     train(imageObj, targetVec) {
+        if (!this.validateInput(imageObj)) {
+            console.warn("Invalid input data, skipping sample");
+            return 0;
+        }
         let pred = this.forward(imageObj, true);
         this.backward(targetVec);
         this.updateWeights();
         return this.crossEntropyLoss(pred, targetVec);
+    }
+    
+    validateInput(imageObj) {
+        let { data, width, height, channels } = imageObj;
+        if (!data || data.length !== channels) return false;
+        for (let c = 0; c < channels; c++) {
+            if (!data[c] || data[c].length !== height) return false;
+            for (let h = 0; h < height; h++) {
+                if (!data[c][h] || data[c][h].length !== width) return false;
+                for (let w = 0; w < width; w++) {
+                    if (!this.isFiniteNum(data[c][h][w])) return false;
+                }
+            }
+        }
+        return true;
     }
 
     trainBatch(batch) {
@@ -811,7 +901,8 @@ function generateSyntheticDataset() {
                             case 3: pattern = ((i * j) % (cls + 2)) / (cls + 2); break;
                             case 4: pattern = Math.sin(i * cls * 0.3) * 0.5 + 0.5; break;
                         }
-                        row.push(pattern + (Math.random() - 0.5) * 0.2);
+                        let val = pattern + (Math.random() - 0.5) * 0.2;
+                        row.push(Math.max(0, Math.min(1, val)));
                     }
                     chan.push(row);
                 }
@@ -1359,7 +1450,11 @@ function parseImageCSV(csv, ch, h, w) {
     for (let c = 0; c < ch; c++) {
         let chan = [];
         for (let i = 0; i < h; i++) {
-            let vals = lines[idx].split(',').map(Number);
+            let vals = lines[idx].split(',').map(v => {
+                let num = Number(v);
+                if (!isFinite(num) || isNaN(num)) num = 0;
+                return Math.max(0, Math.min(1, num));
+            });
             if (vals.length != w) throw "Wrong width in image data CSV!";
             chan.push(vals);
             idx++;
