@@ -1,19 +1,40 @@
 <!--
-   Matthew Abbott 2025
-   CNN
+MIT License
+
+Copyright (c) 2025 Matthew Abbott
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 -->
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Convolutional Neural Network</title>
+    <title>CNN</title>
     <style>
         body { font-family: Arial, sans-serif; margin: 2rem; background: #fafafa; }
         .section { margin-bottom: 2rem; border-bottom: 1px solid #ccc; padding-bottom: 1rem; background: #fff; padding: 1rem; border-radius: 8px; }
         label { display: block; margin-top: 0.5rem; }
         input, select, textarea, button { margin: 0.5rem 0; }
-        button { padding: 8px 16px; cursor: pointer; background: #4285f4; color: white; border: none; border-radius: 4px; }
-        button:hover { background: #3367d6; }
+        button { padding: 8px 16px; cursor: pointer; background: #5a5a5a; color: white; border: none; border-radius: 0; }
+        button:hover { background: #4a4a4a; }
+        button:active { background: #3a3a3a; }
         button:disabled { background: #ccc; cursor: not-allowed; }
         .metric { font-weight: bold; }
         .results { background-color: #f5f5f5; padding: 1rem; margin: 1rem 0; border-radius: 5px; }
@@ -40,7 +61,364 @@
     </style>
 </head>
 <body>
-<h1>Convolutional Neural Network</h1>
+<script>
+/**
+ * Network Visualizer - SVG-based CNN architecture visualization
+ */
+
+function visualizeNetworkArchitecture(cnn, containerId) {
+    if (!cnn) return;
+    
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    
+    // Calculate dimensions - compact version
+    const spacing = 85;
+    const padding = 20;
+    const legendSpace = 80; // Space for legend on the left
+    const neuronRadius = 3;
+    
+    const numConvLayers = cnn.convLayers?.length || 0;
+    const numPoolLayers = cnn.poolLayers?.length || 0;
+    const numFcLayers = cnn.fcLayers?.length || 0;
+    const totalLayers = 2 + numConvLayers + numPoolLayers + numFcLayers; // input + output + others
+    
+    const totalWidth = totalLayers * spacing + padding * 2 + legendSpace;
+    const totalHeight = 200;
+    
+    // Create SVG with scrollable container
+    const svgContainer = document.createElement('div');
+    svgContainer.setAttribute('style', 'overflow-x: auto; overflow-y: hidden; border: 1px solid #ccc; background: #fafafa; border-radius: 4px; margin: 1rem 0; height: 220px;');
+    
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('width', totalWidth);
+    svg.setAttribute('height', totalHeight);
+    svg.setAttribute('style', 'display: block;');
+    
+    const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+    defs.innerHTML = `
+        <linearGradient id="convGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" style="stop-color:#4285f4;stop-opacity:1" />
+            <stop offset="100%" style="stop-color:#1967d2;stop-opacity:1" />
+        </linearGradient>
+        <linearGradient id="poolGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" style="stop-color:#34a853;stop-opacity:1" />
+            <stop offset="100%" style="stop-color:#188038;stop-opacity:1" />
+        </linearGradient>
+        <linearGradient id="fcGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" style="stop-color:#ea4335;stop-opacity:1" />
+            <stop offset="100%" style="stop-color:#c5221f;stop-opacity:1" />
+        </linearGradient>
+        <linearGradient id="outGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" style="stop-color:#fbbc04;stop-opacity:1" />
+            <stop offset="100%" style="stop-color:#f57d00;stop-opacity:1" />
+        </linearGradient>
+    `;
+    svg.appendChild(defs);
+    
+    let xPos = padding + legendSpace;
+    let layerIndex = 0;
+    
+    // Draw input layer
+    const inputNeurons = cnn.channels || 1;
+    drawInputLayer(svg, xPos, totalHeight / 2, inputNeurons, cnn.inputWidth, cnn.inputHeight);
+    xPos += spacing;
+    
+    // Draw conv and pool layers
+    if (cnn.convLayers && cnn.convLayers.length > 0) {
+        for (let i = 0; i < cnn.convLayers.length; i++) {
+            const filters = cnn.convFilters?.[i] || 1;
+            drawConvLayer(svg, xPos, totalHeight / 2, filters, i + 1, cnn.kernelSizes?.[i] || 3);
+            xPos += spacing;
+            
+            // Draw pool layer if exists
+            if (cnn.poolLayers && i < cnn.poolLayers.length) {
+                const poolSize = cnn.poolSizes?.[i] || 2;
+                drawPoolLayer(svg, xPos, totalHeight / 2, poolSize, i + 1);
+                xPos += spacing;
+            }
+        }
+    }
+    
+    // Draw FC layers
+    if (cnn.fcLayers && cnn.fcLayers.length > 0) {
+        for (let i = 0; i < cnn.fcLayers.length; i++) {
+            const neurons = cnn.fcSizes?.[i] || 128;
+            drawFCLayer(svg, xPos, totalHeight / 2, neurons, i + 1);
+            xPos += spacing;
+        }
+    }
+    
+    // Draw output layer
+    const outputNeurons = cnn.outputSize || 10;
+    drawOutputLayer(svg, xPos, totalHeight / 2, outputNeurons);
+    
+    // Draw legend vertically centered on the left
+    drawLegend(svg, padding + 5, totalHeight / 2 - 30);
+    
+    // Add SVG to scrollable container
+    svgContainer.innerHTML = '';
+    svgContainer.appendChild(svg);
+    
+    // Replace container content
+    container.innerHTML = '';
+    container.appendChild(svgContainer);
+}
+
+function drawInputLayer(svg, x, cy, channels, width, height) {
+    const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    
+    // Draw box
+    const box = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    box.setAttribute('x', x - 25);
+    box.setAttribute('y', cy - 35);
+    box.setAttribute('width', 50);
+    box.setAttribute('height', 70);
+    box.setAttribute('fill', '#e8f5e9');
+    box.setAttribute('stroke', '#2e7d32');
+    box.setAttribute('stroke-width', 1.5);
+    box.setAttribute('rx', 3);
+    g.appendChild(box);
+    
+    // Draw text
+    const text1 = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    text1.setAttribute('x', x);
+    text1.setAttribute('y', cy - 18);
+    text1.setAttribute('text-anchor', 'middle');
+    text1.setAttribute('font-size', '10');
+    text1.setAttribute('font-weight', 'bold');
+    text1.setAttribute('fill', '#1b5e20');
+    text1.textContent = 'Input';
+    g.appendChild(text1);
+    
+    const text2 = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    text2.setAttribute('x', x);
+    text2.setAttribute('y', cy + 2);
+    text2.setAttribute('text-anchor', 'middle');
+    text2.setAttribute('font-size', '9');
+    text2.setAttribute('fill', '#1b5e20');
+    text2.textContent = `${width}×${height}`;
+    g.appendChild(text2);
+    
+    const text3 = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    text3.setAttribute('x', x);
+    text3.setAttribute('y', cy + 15);
+    text3.setAttribute('text-anchor', 'middle');
+    text3.setAttribute('font-size', '9');
+    text3.setAttribute('fill', '#1b5e20');
+    text3.textContent = `ch:${channels}`;
+    g.appendChild(text3);
+    
+    svg.appendChild(g);
+}
+
+function drawConvLayer(svg, x, cy, filters, layerNum, kernelSize) {
+    const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    
+    // Draw box
+    const box = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    box.setAttribute('x', x - 28);
+    box.setAttribute('y', cy - 35);
+    box.setAttribute('width', 56);
+    box.setAttribute('height', 70);
+    box.setAttribute('fill', 'url(#convGrad)');
+    box.setAttribute('stroke', '#1967d2');
+    box.setAttribute('stroke-width', 1.5);
+    box.setAttribute('rx', 3);
+    g.appendChild(box);
+    
+    // Draw text
+    const text1 = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    text1.setAttribute('x', x);
+    text1.setAttribute('y', cy - 18);
+    text1.setAttribute('text-anchor', 'middle');
+    text1.setAttribute('font-size', '9');
+    text1.setAttribute('font-weight', 'bold');
+    text1.setAttribute('fill', 'white');
+    text1.textContent = `C${layerNum}`;
+    g.appendChild(text1);
+    
+    const text2 = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    text2.setAttribute('x', x);
+    text2.setAttribute('y', cy + 2);
+    text2.setAttribute('text-anchor', 'middle');
+    text2.setAttribute('font-size', '8');
+    text2.setAttribute('fill', 'white');
+    text2.textContent = `${filters}f`;
+    g.appendChild(text2);
+    
+    const text3 = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    text3.setAttribute('x', x);
+    text3.setAttribute('y', cy + 14);
+    text3.setAttribute('text-anchor', 'middle');
+    text3.setAttribute('font-size', '8');
+    text3.setAttribute('fill', 'white');
+    text3.textContent = `k${kernelSize}`;
+    g.appendChild(text3);
+    
+    svg.appendChild(g);
+}
+
+function drawPoolLayer(svg, x, cy, poolSize, layerNum) {
+    const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    
+    // Draw box
+    const box = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    box.setAttribute('x', x - 23);
+    box.setAttribute('y', cy - 30);
+    box.setAttribute('width', 46);
+    box.setAttribute('height', 60);
+    box.setAttribute('fill', 'url(#poolGrad)');
+    box.setAttribute('stroke', '#188038');
+    box.setAttribute('stroke-width', 1.5);
+    box.setAttribute('rx', 3);
+    g.appendChild(box);
+    
+    // Draw text
+    const text1 = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    text1.setAttribute('x', x);
+    text1.setAttribute('y', cy - 12);
+    text1.setAttribute('text-anchor', 'middle');
+    text1.setAttribute('font-size', '9');
+    text1.setAttribute('font-weight', 'bold');
+    text1.setAttribute('fill', 'white');
+    text1.textContent = 'Pool';
+    g.appendChild(text1);
+    
+    const text2 = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    text2.setAttribute('x', x);
+    text2.setAttribute('y', cy + 8);
+    text2.setAttribute('text-anchor', 'middle');
+    text2.setAttribute('font-size', '8');
+    text2.setAttribute('fill', 'white');
+    text2.textContent = `${poolSize}×${poolSize}`;
+    g.appendChild(text2);
+    
+    svg.appendChild(g);
+}
+
+function drawFCLayer(svg, x, cy, neurons, layerNum) {
+    const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    
+    // Draw box
+    const boxHeight = 70;
+    const box = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    box.setAttribute('x', x - 25);
+    box.setAttribute('y', cy - boxHeight / 2);
+    box.setAttribute('width', 50);
+    box.setAttribute('height', boxHeight);
+    box.setAttribute('fill', 'url(#fcGrad)');
+    box.setAttribute('stroke', '#c5221f');
+    box.setAttribute('stroke-width', 1.5);
+    box.setAttribute('rx', 3);
+    g.appendChild(box);
+    
+    // Draw text
+    const text1 = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    text1.setAttribute('x', x);
+    text1.setAttribute('y', cy - 18);
+    text1.setAttribute('text-anchor', 'middle');
+    text1.setAttribute('font-size', '9');
+    text1.setAttribute('font-weight', 'bold');
+    text1.setAttribute('fill', 'white');
+    text1.textContent = `FC${layerNum}`;
+    g.appendChild(text1);
+    
+    const text2 = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    text2.setAttribute('x', x);
+    text2.setAttribute('y', cy + 8);
+    text2.setAttribute('text-anchor', 'middle');
+    text2.setAttribute('font-size', '8');
+    text2.setAttribute('fill', 'white');
+    text2.textContent = `${neurons}`;
+    g.appendChild(text2);
+    
+    svg.appendChild(g);
+}
+
+function drawOutputLayer(svg, x, cy, neurons) {
+    const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    
+    // Draw box
+    const boxHeight = 70;
+    const box = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    box.setAttribute('x', x - 28);
+    box.setAttribute('y', cy - boxHeight / 2);
+    box.setAttribute('width', 56);
+    box.setAttribute('height', boxHeight);
+    box.setAttribute('fill', 'url(#outGrad)');
+    box.setAttribute('stroke', '#f57d00');
+    box.setAttribute('stroke-width', 1.5);
+    box.setAttribute('rx', 3);
+    g.appendChild(box);
+    
+    // Draw text
+    const text1 = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    text1.setAttribute('x', x);
+    text1.setAttribute('y', cy - 18);
+    text1.setAttribute('text-anchor', 'middle');
+    text1.setAttribute('font-size', '10');
+    text1.setAttribute('font-weight', 'bold');
+    text1.setAttribute('fill', 'white');
+    text1.textContent = 'Output';
+    g.appendChild(text1);
+    
+    const text2 = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    text2.setAttribute('x', x);
+    text2.setAttribute('y', cy + 8);
+    text2.setAttribute('text-anchor', 'middle');
+    text2.setAttribute('font-size', '8');
+    text2.setAttribute('fill', 'white');
+    text2.textContent = `${neurons}c`;
+    g.appendChild(text2);
+    
+    svg.appendChild(g);
+}
+
+function drawLegend(svg, x, y) {
+    const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    
+    const items = [
+        { label: 'Conv', color: 'url(#convGrad)' },
+        { label: 'Pool', color: 'url(#poolGrad)' },
+        { label: 'FC', color: 'url(#fcGrad)' },
+        { label: 'Out', color: 'url(#outGrad)' }
+    ];
+    
+    let yOffset = y;
+    items.forEach(item => {
+        const box = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        box.setAttribute('x', x);
+        box.setAttribute('y', yOffset);
+        box.setAttribute('width', 10);
+        box.setAttribute('height', 10);
+        box.setAttribute('fill', item.color);
+        box.setAttribute('stroke', '#666');
+        box.setAttribute('stroke-width', 0.5);
+        box.setAttribute('rx', 2);
+        g.appendChild(box);
+        
+        const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        text.setAttribute('x', x + 14);
+        text.setAttribute('y', yOffset + 8);
+        text.setAttribute('font-size', '9');
+        text.setAttribute('fill', '#333');
+        text.textContent = item.label;
+        g.appendChild(text);
+        
+        yOffset += 13;
+    });
+    
+    svg.appendChild(g);
+}
+</script>
+<h1>Convolutional Neural Network Trainer</h1>
+
+<!-- Network Architecture Visualization -->
+<div class="section">
+    <h2>Network Architecture</h2>
+    <div id="networkVisualization"></div>
+</div>
 
 <!-- Section 1: CNN Configuration -->
 <div class="section">
@@ -70,11 +448,9 @@
     </div>
     <div class="inline-group">
         <button onclick="createNetwork()">Create Network</button>
-        <button onclick="saveModel()">Save Model</button>
-        <button onclick="loadModel()">Load Model</button>
-        <button onclick="exportModel()">Export JSON</button>
         <input type="file" id="importFile" accept=".json" onchange="importModel(event)" style="display:none">
-        <button onclick="document.getElementById('importFile').click()">Import JSON</button>
+        <button onclick="document.getElementById('importFile').click()">Load Model (JSON)</button>
+        <button onclick="exportModel()">Save Model (JSON)</button>
     </div>
     <span id="networkStatus"></span>
 </div>
@@ -1567,53 +1943,7 @@ function visualizeInput() {
 }
 
 // ============== Model Persistence ==============
-function saveModel() {
-    if (!cnn) {
-        console.log('saveModel: No CNN network created');
-        document.getElementById("networkStatus").textContent = "Error: Create network first!";
-        return;
-    }
-    console.log('saveModel() called');
-    const jsonStr = cnn.toJSON();
-    console.log('toJSON() produced', jsonStr.length, 'bytes');
-    localStorage.setItem('cnn_model', jsonStr);
-    console.log('Model saved to localStorage');
-    document.getElementById("networkStatus").textContent = "Model saved to localStorage! (Size: " + jsonStr.length + " bytes)";
-}
 
-function loadModel() {
-     console.log('loadModel() called');
-     // Try localStorage first, then fall back to file input
-     let saved = localStorage.getItem('cnn_model');
-     console.log('Saved model exists:', !!saved, 'Size:', saved ? saved.length : 'N/A');
-     if (saved) {
-         try {
-             console.log('Attempting to load from localStorage...');
-             cnn = CNN.fromJSON(saved);
-             console.log('Model loaded successfully');
-             document.getElementById("imgWidth").value = cnn.inputWidth;
-             document.getElementById("imgHeight").value = cnn.inputHeight;
-             document.getElementById("imgChannels").value = cnn.channels;
-             document.getElementById("convFilters").value = cnn.convFilters.join(',');
-             document.getElementById("kernelSizes").value = cnn.kernelSizes.join(',');
-             document.getElementById("poolSizes").value = cnn.poolSizes.join(',');
-             document.getElementById("fcSizes").value = cnn.fcSizes.join(',');
-             document.getElementById("outputSize").value = cnn.outputSize;
-             document.getElementById("learningRate").value = cnn.learningRate;
-             document.getElementById("dropoutRate").value = cnn.dropoutRate;
-             document.getElementById("optimizer").value = cnn.optimizer;
-             document.getElementById("networkStatus").textContent = "Model loaded from localStorage! (Size: " + saved.length + " bytes)";
-             console.log('UI updated');
-         } catch(e) {
-             console.error('Error loading model:', e);
-             document.getElementById("networkStatus").textContent = "Error loading model: " + e.message;
-         }
-     } else {
-         // No localStorage, prompt user to import from file instead
-         console.log('No saved model in localStorage');
-         document.getElementById("networkStatus").textContent = "No saved model in browser. Use 'Import JSON' button to load a file.";
-     }
- }
 
 function exportModel() {
     if (!cnn) {
@@ -1660,7 +1990,8 @@ function importModel(event) {
             document.getElementById("dropoutRate").value = cnn.dropoutRate;
             document.getElementById("optimizer").value = cnn.optimizer;
             document.getElementById("networkStatus").textContent = "Model imported from " + file.name + "! (Size: " + e.target.result.length + " bytes)";
-        } catch(e) {
+            visualizeNetworkArchitecture(cnn, 'networkVisualization');
+            } catch(e) {
             console.error('Error importing model:', e);
             document.getElementById("networkStatus").textContent = "Error importing: " + e.message;
         }
@@ -1748,6 +2079,7 @@ function createNetwork() {
     }
     
     document.getElementById("networkStatus").textContent = `CNN created! (${totalParams.toLocaleString()} parameters)`;
+    visualizeNetworkArchitecture(cnn, 'networkVisualization');
 }
 
 function randomizeImage() {
