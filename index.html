@@ -2,7 +2,6 @@
    Matthew Abbott 2025
    CNN
 -->
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -775,6 +774,9 @@ class CNN {
     }
 
     toJSON() {
+        // Note: We omit optimizer state (m, v, biasM, biasV) for smaller file sizes
+        // and consistency across save/load cycles. The state will be reinitialized
+        // when loading, which is fine for inference.
         return JSON.stringify({
             input_width: this.inputWidth,
             input_height: this.inputHeight,
@@ -791,24 +793,26 @@ class CNN {
             loss_type: 'mse',
             optimizer: this.optimizer,
             conv_layers: this.convLayers.map(l => ({
-                filters: l.filters.map(f => ({ weights: f.weights, bias: f.bias, m: f.m, v: f.v, biasM: f.biasM, biasV: f.biasV })),
+                filters: l.filters.map(f => ({ weights: f.weights, bias: f.bias })),
                 padding: l.padding, kernel: l.kernel, inChannels: l.inChannels
             })),
             pool_layers: this.poolLayers.map(l => ({ poolSize: l.poolSize })),
             fc_layers: this.fcLayers.map(l => ({
-                neurons: l.neurons.map(n => ({ weights: n.weights, bias: n.bias, m: n.m, v: n.v, biasM: n.biasM, biasV: n.biasV }))
+                neurons: l.neurons.map(n => ({ weights: n.weights, bias: n.bias }))
             })),
             output_layer: {
-                neurons: this.outputLayer.neurons.map(n => ({ weights: n.weights, bias: n.bias, m: n.m, v: n.v, biasM: n.biasM, biasV: n.biasV }))
+                neurons: this.outputLayer.neurons.map(n => ({ weights: n.weights, bias: n.bias }))
             },
-            t: this.t
+            t: 0
         });
     }
 
     static fromJSON(jsonStr) {
+         console.log('fromJSON called with type:', typeof jsonStr);
          let json;
          try {
              json = typeof jsonStr === 'string' ? JSON.parse(jsonStr) : jsonStr;
+             console.log('JSON parsed successfully');
          } catch (e) {
              console.error('Error parsing JSON:', e.message);
              throw new Error('Invalid JSON format: ' + e.message);
@@ -817,6 +821,7 @@ class CNN {
          if (!json || typeof json !== 'object') {
              throw new Error('JSON must be an object');
          }
+         console.log('JSON validation passed');
          
          // Handle both snake_case (Pascal) and camelCase (JavaScript) field names
          const inputWidth = json.input_width || json.inputWidth || 28;
@@ -1423,25 +1428,45 @@ function evaluateModel() {
 }
 
 function predictSingleImage() {
-    if (!cnn) return;
-    let pred = cnn.predictImage(sampleImage);
-    let maxIdx = pred.indexOf(Math.max(...pred));
-    let confidence = (pred[maxIdx] * 100).toFixed(2);
-    
-    let barHtml = '<h4>Class Probabilities</h4>';
-    for (let i = 0; i < pred.length; i++) {
-        let pct = (pred[i] * 100).toFixed(1);
-        let bg = i === maxIdx ? '#4285f4' : '#e0e0e0';
-        barHtml += `<div style="margin:2px 0"><span style="display:inline-block;width:60px">Class ${i}:</span>
-            <div style="display:inline-block;width:200px;height:16px;background:#f0f0f0;border-radius:3px;overflow:hidden;vertical-align:middle">
-                <div style="width:${pct}%;height:100%;background:${bg}"></div>
-            </div> ${pct}%</div>`;
+    console.log('predictSingleImage() called');
+    if (!cnn) {
+        console.log('predictSingleImage: CNN not initialized');
+        document.getElementById("predictionResult").innerHTML = '<p style="color:red;">Error: Create or load network first!</p>';
+        return;
+    }
+    if (!sampleImage || !sampleImage.data) {
+        console.log('predictSingleImage: No sample image loaded');
+        document.getElementById("predictionResult").innerHTML = '<p style="color:red;">Error: Load or randomize an image first!</p>';
+        return;
     }
     
-    document.getElementById("predictionResult").innerHTML = `
-        <div class="metric"><strong>Prediction: Class ${maxIdx}</strong> (${confidence}% confidence)</div>
-        ${barHtml}
-    `;
+    try {
+        console.log('Running prediction on image:', sampleImage.width, 'x', sampleImage.height);
+        let pred = cnn.predictImage(sampleImage);
+        console.log('Prediction output:', pred);
+        let maxIdx = pred.indexOf(Math.max(...pred));
+        let confidence = (pred[maxIdx] * 100).toFixed(2);
+        
+        console.log('Predicted class:', maxIdx, 'confidence:', confidence + '%');
+        
+        let barHtml = '<h4>Class Probabilities</h4>';
+        for (let i = 0; i < pred.length; i++) {
+            let pct = (pred[i] * 100).toFixed(1);
+            let bg = i === maxIdx ? '#4285f4' : '#e0e0e0';
+            barHtml += `<div style="margin:2px 0"><span style="display:inline-block;width:60px">Class ${i}:</span>
+                <div style="display:inline-block;width:200px;height:16px;background:#f0f0f0;border-radius:3px;overflow:hidden;vertical-align:middle">
+                    <div style="width:${pct}%;height:100%;background:${bg}"></div>
+                </div> ${pct}%</div>`;
+        }
+        
+        document.getElementById("predictionResult").innerHTML = `
+            <div class="metric"><strong>Prediction: Class ${maxIdx}</strong> (${confidence}% confidence)</div>
+            ${barHtml}
+        `;
+    } catch(e) {
+        console.error('Prediction error:', e);
+        document.getElementById("predictionResult").innerHTML = '<p style="color:red;">Prediction error: ' + e.message + '</p>';
+    }
 }
 
 // ============== Visualization ==============
@@ -1543,41 +1568,62 @@ function visualizeInput() {
 
 // ============== Model Persistence ==============
 function saveModel() {
-    if (!cnn) return;
-    localStorage.setItem('cnn_model', cnn.toJSON());
-    document.getElementById("networkStatus").textContent = "Model saved to localStorage!";
+    if (!cnn) {
+        console.log('saveModel: No CNN network created');
+        document.getElementById("networkStatus").textContent = "Error: Create network first!";
+        return;
+    }
+    console.log('saveModel() called');
+    const jsonStr = cnn.toJSON();
+    console.log('toJSON() produced', jsonStr.length, 'bytes');
+    localStorage.setItem('cnn_model', jsonStr);
+    console.log('Model saved to localStorage');
+    document.getElementById("networkStatus").textContent = "Model saved to localStorage! (Size: " + jsonStr.length + " bytes)";
 }
 
 function loadModel() {
-    // Try localStorage first, then fall back to file input
-    let saved = localStorage.getItem('cnn_model');
-    if (saved) {
-        try {
-            cnn = CNN.fromJSON(saved);
-            document.getElementById("imgWidth").value = cnn.inputWidth;
-            document.getElementById("imgHeight").value = cnn.inputHeight;
-            document.getElementById("imgChannels").value = cnn.channels;
-            document.getElementById("convFilters").value = cnn.convFilters.join(',');
-            document.getElementById("kernelSizes").value = cnn.kernelSizes.join(',');
-            document.getElementById("poolSizes").value = cnn.poolSizes.join(',');
-            document.getElementById("fcSizes").value = cnn.fcSizes.join(',');
-            document.getElementById("outputSize").value = cnn.outputSize;
-            document.getElementById("learningRate").value = cnn.learningRate;
-            document.getElementById("dropoutRate").value = cnn.dropoutRate;
-            document.getElementById("optimizer").value = cnn.optimizer;
-            document.getElementById("networkStatus").textContent = "Model loaded from localStorage!";
-        } catch(e) {
-            document.getElementById("networkStatus").textContent = "Error loading model: " + e;
-        }
-    } else {
-        // No localStorage, prompt user to import from file instead
-        document.getElementById("networkStatus").textContent = "No saved model in browser. Use 'Import JSON' button to load a file.";
-    }
-}
+     console.log('loadModel() called');
+     // Try localStorage first, then fall back to file input
+     let saved = localStorage.getItem('cnn_model');
+     console.log('Saved model exists:', !!saved, 'Size:', saved ? saved.length : 'N/A');
+     if (saved) {
+         try {
+             console.log('Attempting to load from localStorage...');
+             cnn = CNN.fromJSON(saved);
+             console.log('Model loaded successfully');
+             document.getElementById("imgWidth").value = cnn.inputWidth;
+             document.getElementById("imgHeight").value = cnn.inputHeight;
+             document.getElementById("imgChannels").value = cnn.channels;
+             document.getElementById("convFilters").value = cnn.convFilters.join(',');
+             document.getElementById("kernelSizes").value = cnn.kernelSizes.join(',');
+             document.getElementById("poolSizes").value = cnn.poolSizes.join(',');
+             document.getElementById("fcSizes").value = cnn.fcSizes.join(',');
+             document.getElementById("outputSize").value = cnn.outputSize;
+             document.getElementById("learningRate").value = cnn.learningRate;
+             document.getElementById("dropoutRate").value = cnn.dropoutRate;
+             document.getElementById("optimizer").value = cnn.optimizer;
+             document.getElementById("networkStatus").textContent = "Model loaded from localStorage! (Size: " + saved.length + " bytes)";
+             console.log('UI updated');
+         } catch(e) {
+             console.error('Error loading model:', e);
+             document.getElementById("networkStatus").textContent = "Error loading model: " + e.message;
+         }
+     } else {
+         // No localStorage, prompt user to import from file instead
+         console.log('No saved model in localStorage');
+         document.getElementById("networkStatus").textContent = "No saved model in browser. Use 'Import JSON' button to load a file.";
+     }
+ }
 
 function exportModel() {
-    if (!cnn) return;
+    if (!cnn) {
+        console.log('exportModel: No CNN network created');
+        document.getElementById("networkStatus").textContent = "Error: Create network first!";
+        return;
+    }
+    console.log('exportModel() called');
     let data = cnn.toJSON();
+    console.log('Exporting JSON of size:', data.length, 'bytes');
     let blob = new Blob([data], { type: 'application/json' });
     let url = URL.createObjectURL(blob);
     let a = document.createElement('a');
@@ -1585,15 +1631,23 @@ function exportModel() {
     a.download = 'cnn_model.json';
     a.click();
     URL.revokeObjectURL(url);
+    document.getElementById("networkStatus").textContent = "Model exported!";
+    console.log('Model exported');
 }
 
 function importModel(event) {
     let file = event.target.files[0];
-    if (!file) return;
+    if (!file) {
+        console.log('importModel: No file selected');
+        return;
+    }
+    console.log('importModel() called with file:', file.name, 'size:', file.size);
     let reader = new FileReader();
     reader.onload = function(e) {
         try {
+            console.log('File read, content size:', e.target.result.length);
             cnn = CNN.fromJSON(e.target.result);
+            console.log('Model imported successfully');
             document.getElementById("imgWidth").value = cnn.inputWidth;
             document.getElementById("imgHeight").value = cnn.inputHeight;
             document.getElementById("imgChannels").value = cnn.channels;
@@ -1605,9 +1659,10 @@ function importModel(event) {
             document.getElementById("learningRate").value = cnn.learningRate;
             document.getElementById("dropoutRate").value = cnn.dropoutRate;
             document.getElementById("optimizer").value = cnn.optimizer;
-            document.getElementById("networkStatus").textContent = "Model imported from file!";
+            document.getElementById("networkStatus").textContent = "Model imported from " + file.name + "! (Size: " + e.target.result.length + " bytes)";
         } catch(e) {
-            document.getElementById("networkStatus").textContent = "Error importing: " + e;
+            console.error('Error importing model:', e);
+            document.getElementById("networkStatus").textContent = "Error importing: " + e.message;
         }
     };
     reader.readAsText(file);
@@ -1663,6 +1718,7 @@ let sampleImage = {
 };
 
 function createNetwork() {
+    console.log('createNetwork() called');
     let w = +document.getElementById("imgWidth").value;
     let h = +document.getElementById("imgHeight").value;
     let ch = +document.getElementById("imgChannels").value;
@@ -1675,7 +1731,9 @@ function createNetwork() {
     let dropout = +document.getElementById("dropoutRate").value;
     let optimizer = document.getElementById("optimizer").value;
     
+    console.log('Creating CNN:', {w, h, ch, convFilters, kernelSizes, poolSizes, fcSizes, outputSize});
     cnn = new CNN(w, h, ch, convFilters, kernelSizes, poolSizes, fcSizes, outputSize, lr, dropout, optimizer);
+    console.log('CNN created successfully');
     
     let totalParams = 0;
     for (let l of cnn.convLayers) {
@@ -1724,6 +1782,12 @@ function loadImage() {
 }
 
 randomizeImage();
+console.log('CNN Trainer application initialized');
+console.log('- Click "Create Network" to build a new CNN');
+console.log('- Click "Generate Synthetic Dataset" to create training data');
+console.log('- Click "Train on Dataset" to train the network');
+console.log('- Click "Predict Single Image" to test predictions');
+console.log('- Check browser console (F12) for detailed debug logs');
 </script>
 </body>
 </html>
