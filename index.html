@@ -1,13 +1,8 @@
 <!--
-  Enhanced CNN Trainer with:
-  - Full backpropagation for conv/pool layers
-  - Softmax/cross-entropy for multi-class
-  - Dataset support with train/test split
-  - Batching, shuffling, Adam optimizer
-  - Image upload and visualization
-  - Dropout and data augmentation
-  - Model save/load with localStorage
+   Matthew Abbott 2025
+   CNN
 -->
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -780,58 +775,232 @@ class CNN {
     }
 
     toJSON() {
-        return {
-            config: {
-                inputWidth: this.inputWidth, inputHeight: this.inputHeight, channels: this.channels,
-                convFilters: this.convFilters, kernelSizes: this.kernelSizes, poolSizes: this.poolSizes,
-                fcSizes: this.fcSizes, outputSize: this.outputSize, learningRate: this.learningRate,
-                dropoutRate: this.dropoutRate, optimizer: this.optimizer
-            },
-            convLayers: this.convLayers.map(l => ({
+        return JSON.stringify({
+            input_width: this.inputWidth,
+            input_height: this.inputHeight,
+            input_channels: this.channels,
+            output_size: this.outputSize,
+            conv_filters: this.convFilters,
+            kernel_sizes: this.kernelSizes,
+            pool_sizes: this.poolSizes,
+            fc_layer_sizes: this.fcSizes,
+            learning_rate: this.learningRate,
+            dropout_rate: this.dropoutRate,
+            activation: 'relu',
+            output_activation: 'linear',
+            loss_type: 'mse',
+            optimizer: this.optimizer,
+            conv_layers: this.convLayers.map(l => ({
                 filters: l.filters.map(f => ({ weights: f.weights, bias: f.bias, m: f.m, v: f.v, biasM: f.biasM, biasV: f.biasV })),
                 padding: l.padding, kernel: l.kernel, inChannels: l.inChannels
             })),
-            poolLayers: this.poolLayers.map(l => ({ poolSize: l.poolSize })),
-            fcLayers: this.fcLayers.map(l => ({
+            pool_layers: this.poolLayers.map(l => ({ poolSize: l.poolSize })),
+            fc_layers: this.fcLayers.map(l => ({
                 neurons: l.neurons.map(n => ({ weights: n.weights, bias: n.bias, m: n.m, v: n.v, biasM: n.biasM, biasV: n.biasV }))
             })),
-            outputLayer: {
+            output_layer: {
                 neurons: this.outputLayer.neurons.map(n => ({ weights: n.weights, bias: n.bias, m: n.m, v: n.v, biasM: n.biasM, biasV: n.biasV }))
             },
             t: this.t
-        };
+        });
     }
 
-    static fromJSON(json) {
-        let c = json.config;
-        let net = new CNN(c.inputWidth, c.inputHeight, c.channels, c.convFilters, c.kernelSizes, c.poolSizes, c.fcSizes, c.outputSize, c.learningRate, c.dropoutRate, c.optimizer);
-        
-        for (let i = 0; i < json.convLayers.length; i++) {
-            let jl = json.convLayers[i];
-            for (let f = 0; f < jl.filters.length; f++) {
-                net.convLayers[i].filters[f].weights = jl.filters[f].weights;
-                net.convLayers[i].filters[f].bias = jl.filters[f].bias;
-                net.convLayers[i].filters[f].m = jl.filters[f].m;
-                net.convLayers[i].filters[f].v = jl.filters[f].v;
-                net.convLayers[i].filters[f].biasM = jl.filters[f].biasM;
-                net.convLayers[i].filters[f].biasV = jl.filters[f].biasV;
-            }
-        }
-        
-        for (let i = 0; i < json.fcLayers.length; i++) {
-            let jl = json.fcLayers[i];
-            for (let n = 0; n < jl.neurons.length; n++) {
-                Object.assign(net.fcLayers[i].neurons[n], jl.neurons[n]);
-            }
-        }
-        
-        for (let n = 0; n < json.outputLayer.neurons.length; n++) {
-            Object.assign(net.outputLayer.neurons[n], json.outputLayer.neurons[n]);
-        }
-        
-        net.t = json.t || 0;
-        return net;
-    }
+    static fromJSON(jsonStr) {
+         let json;
+         try {
+             json = typeof jsonStr === 'string' ? JSON.parse(jsonStr) : jsonStr;
+         } catch (e) {
+             console.error('Error parsing JSON:', e.message);
+             throw new Error('Invalid JSON format: ' + e.message);
+         }
+         
+         if (!json || typeof json !== 'object') {
+             throw new Error('JSON must be an object');
+         }
+         
+         // Handle both snake_case (Pascal) and camelCase (JavaScript) field names
+         const inputWidth = json.input_width || json.inputWidth || 28;
+         const inputHeight = json.input_height || json.inputHeight || 28;
+         const inputChannels = json.input_channels || json.inputChannels || 1;
+         const outputSize = json.output_size || json.outputSize || 10;
+         
+         // Ensure arrays are actual arrays, not undefined
+         let convFilters = json.conv_filters || json.convFilters || [16];
+         let kernelSizes = json.kernel_sizes || json.kernelSizes || [3];
+         let poolSizes = json.pool_sizes || json.poolSizes || [2];
+         let fcLayerSizes = json.fc_layer_sizes || json.fcLayerSizes || [128];
+         
+         // Ensure they're arrays if they came from JSON
+         if (!Array.isArray(convFilters)) convFilters = [convFilters];
+         if (!Array.isArray(kernelSizes)) kernelSizes = [kernelSizes];
+         if (!Array.isArray(poolSizes)) poolSizes = [poolSizes];
+         if (!Array.isArray(fcLayerSizes)) fcLayerSizes = [fcLayerSizes];
+         
+         // Final safety check - ensure all are non-empty arrays
+         if (!convFilters || convFilters.length === 0) convFilters = [16];
+         if (!kernelSizes || kernelSizes.length === 0) kernelSizes = [3];
+         if (!poolSizes || poolSizes.length === 0) poolSizes = [2];
+         if (!fcLayerSizes || fcLayerSizes.length === 0) fcLayerSizes = [128];
+         
+         const learningRate = json.learning_rate || json.learningRate || 0.001;
+         const dropoutRate = json.dropout_rate || json.dropoutRate || 0.25;
+         const optimizer = json.optimizer || 'adam';
+         
+         let net = new CNN(inputWidth, inputHeight, inputChannels, convFilters, kernelSizes, poolSizes, fcLayerSizes, outputSize, learningRate, dropoutRate, optimizer);
+         
+         // ========== Load Conv Layer Weights ==========
+         if (json.conv_layers && json.conv_layers.length > 0) {
+             for (let i = 0; i < json.conv_layers.length && i < net.convLayers.length; i++) {
+                 let jl = json.conv_layers[i];
+                 if (!jl.filters || !Array.isArray(jl.filters)) continue;
+                 
+                 for (let f = 0; f < jl.filters.length && f < net.convLayers[i].filters.length; f++) {
+                     let jsonFilter = jl.filters[f];
+                     let netFilter = net.convLayers[i].filters[f];
+                     
+                     // Load filter weights
+                     // Pascal stores as 4D: [[channels][height][width]] - we take [0] to get 3D
+                     if (jsonFilter.weights && Array.isArray(jsonFilter.weights)) {
+                         let weights = jsonFilter.weights;
+                         // Handle Pascal format: weights might be [1][channels][height][width]
+                         if (weights.length === 1 && Array.isArray(weights[0])) {
+                             netFilter.weights = JSON.parse(JSON.stringify(weights[0]));
+                         } else {
+                             // Already 3D, use as-is
+                             netFilter.weights = JSON.parse(JSON.stringify(weights));
+                         }
+                     }
+                     
+                     // Load filter bias
+                     if (typeof jsonFilter.bias === 'number') {
+                         netFilter.bias = jsonFilter.bias;
+                     }
+                     
+                     // Load optimizer state if available
+                     if (jsonFilter.m && Array.isArray(jsonFilter.m)) {
+                         netFilter.m = JSON.parse(JSON.stringify(jsonFilter.m));
+                     }
+                     if (jsonFilter.v && Array.isArray(jsonFilter.v)) {
+                         netFilter.v = JSON.parse(JSON.stringify(jsonFilter.v));
+                     }
+                     if (typeof jsonFilter.biasM === 'number') {
+                         netFilter.biasM = jsonFilter.biasM;
+                     }
+                     if (typeof jsonFilter.biasV === 'number') {
+                         netFilter.biasV = jsonFilter.biasV;
+                     }
+                 }
+             }
+         }
+         
+         // ========== Load FC Layer Weights ==========
+         if (json.fc_layers && json.fc_layers.length > 0) {
+             for (let i = 0; i < json.fc_layers.length && i < net.fcLayers.length; i++) {
+                 let jsonLayer = json.fc_layers[i];
+                 let netLayer = net.fcLayers[i];
+                 
+                 // Handle Pascal format: weights are 2D array [num_neurons][input_size]
+                 if (jsonLayer.weights && Array.isArray(jsonLayer.weights)) {
+                     let weightsArray = jsonLayer.weights;
+                     
+                     for (let n = 0; n < weightsArray.length && n < netLayer.neurons.length; n++) {
+                         let neuronWeights = weightsArray[n];
+                         
+                         if (Array.isArray(neuronWeights)) {
+                             netLayer.neurons[n].weights = JSON.parse(JSON.stringify(neuronWeights));
+                         }
+                     }
+                 }
+                 
+                 // Load biases (1D array)
+                 if (jsonLayer.bias && Array.isArray(jsonLayer.bias)) {
+                     for (let n = 0; n < jsonLayer.bias.length && n < netLayer.neurons.length; n++) {
+                         netLayer.neurons[n].bias = jsonLayer.bias[n];
+                     }
+                 }
+             }
+         }
+         
+         // ========== Load Output Layer Weights ==========
+         if (json.output_layer) {
+             let outputLayer = json.output_layer;
+             
+             // Handle Pascal format: weights are 2D array [num_outputs][input_size]
+             if (outputLayer.weights && Array.isArray(outputLayer.weights)) {
+                 let weightsArray = outputLayer.weights;
+                 
+                 for (let n = 0; n < weightsArray.length && n < net.outputLayer.neurons.length; n++) {
+                     let neuronWeights = weightsArray[n];
+                     
+                     if (Array.isArray(neuronWeights)) {
+                         net.outputLayer.neurons[n].weights = JSON.parse(JSON.stringify(neuronWeights));
+                     }
+                 }
+             }
+             
+             // Load biases (1D array)
+             if (outputLayer.bias && Array.isArray(outputLayer.bias)) {
+                 for (let n = 0; n < outputLayer.bias.length && n < net.outputLayer.neurons.length; n++) {
+                     net.outputLayer.neurons[n].bias = outputLayer.bias[n];
+                 }
+             }
+         }
+         
+         net.t = json.t || 0;
+         
+         // Validate loaded weights for NaN/Infinity
+         CNN.validateWeights(net);
+         
+         return net;
+     }
+
+     static validateWeights(net) {
+         // Check conv layers
+         for (let i = 0; i < net.convLayers.length; i++) {
+             for (let f = 0; f < net.convLayers[i].filters.length; f++) {
+                 let filter = net.convLayers[i].filters[f];
+                 if (!isFinite(filter.bias)) {
+                     console.warn(`Conv layer ${i} filter ${f} bias is not finite: ${filter.bias}`);
+                 }
+                 // Sample check on weights
+                 if (filter.weights && filter.weights[0] && filter.weights[0][0] && filter.weights[0][0][0]) {
+                     if (!isFinite(filter.weights[0][0][0])) {
+                         console.warn(`Conv layer ${i} filter ${f} has non-finite weight`);
+                     }
+                 }
+             }
+         }
+         
+         // Check FC layers
+         for (let i = 0; i < net.fcLayers.length; i++) {
+             for (let n = 0; n < net.fcLayers[i].neurons.length; n++) {
+                 let neuron = net.fcLayers[i].neurons[n];
+                 if (!isFinite(neuron.bias)) {
+                     console.warn(`FC layer ${i} neuron ${n} bias is not finite: ${neuron.bias}`);
+                 }
+                 // Sample check on weights
+                 if (neuron.weights && neuron.weights[0]) {
+                     if (!isFinite(neuron.weights[0])) {
+                         console.warn(`FC layer ${i} neuron ${n} has non-finite weight`);
+                     }
+                 }
+             }
+         }
+         
+         // Check output layer
+         for (let n = 0; n < net.outputLayer.neurons.length; n++) {
+             let neuron = net.outputLayer.neurons[n];
+             if (!isFinite(neuron.bias)) {
+                 console.warn(`Output layer neuron ${n} bias is not finite: ${neuron.bias}`);
+             }
+             // Sample check on weights
+             if (neuron.weights && neuron.weights[0]) {
+                 if (!isFinite(neuron.weights[0])) {
+                     console.warn(`Output layer neuron ${n} has non-finite weight`);
+                 }
+             }
+         }
+     }
 }
 
 // ============== Dataset Management ==============
@@ -1375,38 +1544,40 @@ function visualizeInput() {
 // ============== Model Persistence ==============
 function saveModel() {
     if (!cnn) return;
-    localStorage.setItem('cnn_model', JSON.stringify(cnn.toJSON()));
+    localStorage.setItem('cnn_model', cnn.toJSON());
     document.getElementById("networkStatus").textContent = "Model saved to localStorage!";
 }
 
 function loadModel() {
+    // Try localStorage first, then fall back to file input
     let saved = localStorage.getItem('cnn_model');
-    if (!saved) {
-        document.getElementById("networkStatus").textContent = "No saved model found!";
-        return;
-    }
-    try {
-        cnn = CNN.fromJSON(JSON.parse(saved));
-        document.getElementById("imgWidth").value = cnn.inputWidth;
-        document.getElementById("imgHeight").value = cnn.inputHeight;
-        document.getElementById("imgChannels").value = cnn.channels;
-        document.getElementById("convFilters").value = cnn.convFilters.join(',');
-        document.getElementById("kernelSizes").value = cnn.kernelSizes.join(',');
-        document.getElementById("poolSizes").value = cnn.poolSizes.join(',');
-        document.getElementById("fcSizes").value = cnn.fcSizes.join(',');
-        document.getElementById("outputSize").value = cnn.outputSize;
-        document.getElementById("learningRate").value = cnn.learningRate;
-        document.getElementById("dropoutRate").value = cnn.dropoutRate;
-        document.getElementById("optimizer").value = cnn.optimizer;
-        document.getElementById("networkStatus").textContent = "Model loaded from localStorage!";
-    } catch(e) {
-        document.getElementById("networkStatus").textContent = "Error loading model: " + e;
+    if (saved) {
+        try {
+            cnn = CNN.fromJSON(saved);
+            document.getElementById("imgWidth").value = cnn.inputWidth;
+            document.getElementById("imgHeight").value = cnn.inputHeight;
+            document.getElementById("imgChannels").value = cnn.channels;
+            document.getElementById("convFilters").value = cnn.convFilters.join(',');
+            document.getElementById("kernelSizes").value = cnn.kernelSizes.join(',');
+            document.getElementById("poolSizes").value = cnn.poolSizes.join(',');
+            document.getElementById("fcSizes").value = cnn.fcSizes.join(',');
+            document.getElementById("outputSize").value = cnn.outputSize;
+            document.getElementById("learningRate").value = cnn.learningRate;
+            document.getElementById("dropoutRate").value = cnn.dropoutRate;
+            document.getElementById("optimizer").value = cnn.optimizer;
+            document.getElementById("networkStatus").textContent = "Model loaded from localStorage!";
+        } catch(e) {
+            document.getElementById("networkStatus").textContent = "Error loading model: " + e;
+        }
+    } else {
+        // No localStorage, prompt user to import from file instead
+        document.getElementById("networkStatus").textContent = "No saved model in browser. Use 'Import JSON' button to load a file.";
     }
 }
 
 function exportModel() {
     if (!cnn) return;
-    let data = JSON.stringify(cnn.toJSON(), null, 2);
+    let data = cnn.toJSON();
     let blob = new Blob([data], { type: 'application/json' });
     let url = URL.createObjectURL(blob);
     let a = document.createElement('a');
@@ -1422,7 +1593,7 @@ function importModel(event) {
     let reader = new FileReader();
     reader.onload = function(e) {
         try {
-            cnn = CNN.fromJSON(JSON.parse(e.target.result));
+            cnn = CNN.fromJSON(e.target.result);
             document.getElementById("imgWidth").value = cnn.inputWidth;
             document.getElementById("imgHeight").value = cnn.inputHeight;
             document.getElementById("imgChannels").value = cnn.channels;
